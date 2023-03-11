@@ -104,7 +104,7 @@ public static class Configuration
     {
         if (new OsInfo(Array.Empty<IOsVersionAdapter>()).IsDocker)
         {
-            return;
+            //return;
         }
 
         try
@@ -123,10 +123,10 @@ public static class Configuration
 
     private static int GetPort(string filePath)
     {
-        const int defaultPort = 5000;
+        const int defaultPort = 8313;
         if (new OsInfo(Array.Empty<IOsVersionAdapter>()).IsDocker)
         {
-            return defaultPort;
+            //return defaultPort;
         }
 
         try
@@ -156,7 +156,7 @@ public static class Configuration
     {
         if (new OsInfo(Array.Empty<IOsVersionAdapter>()).IsDocker)
         {
-            return;
+            //return;
         }
 
         try
@@ -177,7 +177,7 @@ public static class Configuration
     {
         if (new OsInfo(Array.Empty<IOsVersionAdapter>()).IsDocker)
         {
-            return DefaultIPAddresses;
+            //return DefaultIPAddresses;
         }
 
         try

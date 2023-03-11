@@ -127,7 +127,7 @@ jobs:
             body=${body:0:1870}
             body="${body}...and much more.
 
-            Read full changelog: https://github.com/Kareadita/Kavita/pull/${{ steps.findPr.outputs.pr }}"
+            Read full changelog: https://github.com/milindpatel63/Kavita/pull/${{ steps.findPr.outputs.pr }}"
           fi
 
           body=${body//\'/}
@@ -206,7 +206,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm/v7,linux/arm64
           push: true
-          tags: kizaing/kavita:nightly, kizaing/kavita:nightly-${{ steps.parse-version.outputs.VERSION }}
+          tags: milindpatel63/dianakavita:nightly, milindpatel63/dianakavita:nightly-${{ steps.parse-version.outputs.VERSION }}
 
       - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}
@@ -241,7 +241,7 @@ jobs:
             body=${body:0:1870}
             body="${body}...and much more.
 
-            Read full changelog: https://github.com/Kareadita/Kavita/releases/latest"
+            Read full changelog: https://github.com/milindpatel63/Kavita/releases/latest"
           fi
 
           body=${body//\'/}
@@ -322,7 +322,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm/v7,linux/arm64
           push: true
-          tags: kizaing/kavita:latest, kizaing/kavita:${{ steps.parse-version.outputs.VERSION }}
+          tags: milindpatel63/dianakavita:latest, milindpatel63/dianakavita:${{ steps.parse-version.outputs.VERSION }}
 
       - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}
