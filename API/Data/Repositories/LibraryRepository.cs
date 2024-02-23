@@ -11,6 +11,7 @@ using API.Entities;
 using API.Entities.Enums;
 using API.Extensions;
 using API.Extensions.QueryExtensions;
+using API.Services.Tasks.Scanner.Parser;
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
 using Kavita.Common.Extensions;
@@ -36,7 +37,7 @@ public interface ILibraryRepository
     Task<IEnumerable<LibraryDto>> GetLibraryDtosAsync();
     Task<bool> LibraryExists(string libraryName);
     Task<Library?> GetLibraryForIdAsync(int libraryId, LibraryIncludes includes = LibraryIncludes.None);
-    Task<IEnumerable<LibraryDto>> GetLibraryDtosForUsernameAsync(string userName);
+    IEnumerable<LibraryDto> GetLibraryDtosForUsernameAsync(string userName);
     Task<IEnumerable<Library>> GetLibrariesAsync(LibraryIncludes includes = LibraryIncludes.None);
     Task<IEnumerable<Library>> GetLibrariesForUserIdAsync(int userId);
     IEnumerable<int> GetLibraryIdsForUserIdAsync(int userId, QueryContext queryContext = QueryContext.None);
@@ -45,14 +46,14 @@ public interface ILibraryRepository
     Task<int> GetTotalFiles();
     IEnumerable<JumpKeyDto> GetJumpBarAsync(int libraryId);
     Task<IList<AgeRatingDto>> GetAllAgeRatingsDtosForLibrariesAsync(List<int> libraryIds);
-    Task<IList<LanguageDto>> GetAllLanguagesForLibrariesAsync(List<int> libraryIds);
-    Task<IList<LanguageDto>> GetAllLanguagesForLibrariesAsync();
+    Task<IList<LanguageDto>> GetAllLanguagesForLibrariesAsync(List<int>? libraryIds);
     IEnumerable<PublicationStatusDto> GetAllPublicationStatusesDtosForLibrariesAsync(List<int> libraryIds);
     Task<bool> DoAnySeriesFoldersMatch(IEnumerable<string> folders);
     Task<string?> GetLibraryCoverImageAsync(int libraryId);
     Task<IList<string>> GetAllCoverImagesAsync();
     Task<IDictionary<int, LibraryType>> GetLibraryTypesForIdsAsync(IEnumerable<int> libraryIds);
-    Task<IList<Library>> GetAllWithNonWebPCovers();
+    Task<IList<Library>> GetAllWithCoversInDifferentEncoding(EncodeFormat encodeFormat);
+    Task<bool> GetAllowsScrobblingBySeriesId(int seriesId);
 }
 
 public class LibraryRepository : ILibraryRepository
@@ -82,16 +83,15 @@ public class LibraryRepository : ILibraryRepository
         _context.Library.Remove(library);
     }
 
-    public async Task<IEnumerable<LibraryDto>> GetLibraryDtosForUsernameAsync(string userName)
+    public IEnumerable<LibraryDto> GetLibraryDtosForUsernameAsync(string userName)
     {
-        return await _context.Library
+        return _context.Library
             .Include(l => l.AppUsers)
-            .Where(library => library.AppUsers.Any(x => x.UserName == userName))
+            .Where(library => library.AppUsers.Any(x => x.UserName.Equals(userName)))
             .OrderBy(l => l.Name)
             .ProjectTo<LibraryDto>(_mapper.ConfigurationProvider)
-            .AsNoTracking()
-            .AsSingleQuery()
-            .ToListAsync();
+            .AsSplitQuery()
+            .AsEnumerable();
     }
 
     /// <summary>
@@ -138,7 +138,7 @@ public class LibraryRepository : ILibraryRepository
             .Where(l => l.Id == libraryId)
             .AsNoTracking()
             .Select(l => l.Type)
-            .SingleAsync();
+            .FirstAsync();
     }
 
     public async Task<IEnumerable<Library>> GetLibraryForIdsAsync(IEnumerable<int> libraryIds, LibraryIncludes includes = LibraryIncludes.None)
@@ -170,10 +170,7 @@ public class LibraryRepository : ILibraryRepository
             var c = sortChar;
             var isAlpha = char.IsLetter(sortChar);
             if (!isAlpha) c = '#';
-            if (!firstCharacterMap.ContainsKey(c))
-            {
-                firstCharacterMap[c] = 0;
-            }
+            firstCharacterMap.TryAdd(c, 0);
 
             firstCharacterMap[c] += 1;
         }
@@ -264,10 +261,10 @@ public class LibraryRepository : ILibraryRepository
             .ToListAsync();
     }
 
-    public async Task<IList<LanguageDto>> GetAllLanguagesForLibrariesAsync(List<int> libraryIds)
+    public async Task<IList<LanguageDto>> GetAllLanguagesForLibrariesAsync(List<int>? libraryIds)
     {
         var ret = await _context.Series
-            .Where(s => libraryIds.Contains(s.LibraryId))
+            .WhereIf(libraryIds is {Count: > 0} , s => libraryIds.Contains(s.LibraryId))
             .Select(s => s.Metadata.Language)
             .AsSplitQuery()
             .AsNoTracking()
@@ -276,33 +273,33 @@ public class LibraryRepository : ILibraryRepository
 
         return ret
             .Where(s => !string.IsNullOrEmpty(s))
-            .Select(s => new LanguageDto()
-            {
-                Title = CultureInfo.GetCultureInfo(s).DisplayName,
-                IsoCode = s
-            })
+            .DistinctBy(Parser.Normalize)
+            .Select(GetCulture)
+            .Where(s => s != null)
             .OrderBy(s => s.Title)
             .ToList();
     }
 
-    public async Task<IList<LanguageDto>> GetAllLanguagesForLibrariesAsync()
+    private static LanguageDto GetCulture(string s)
     {
-        var ret = await _context.Series
-            .Select(s => s.Metadata.Language)
-            .AsSplitQuery()
-            .AsNoTracking()
-            .Distinct()
-            .ToListAsync();
-
-        return ret
-            .Where(s => !string.IsNullOrEmpty(s))
-            .Select(s => new LanguageDto()
+        try
+        {
+            return new LanguageDto()
             {
                 Title = CultureInfo.GetCultureInfo(s).DisplayName,
                 IsoCode = s
-            })
-            .OrderBy(s => s.Title)
-            .ToList();
+            };
+        }
+        catch (Exception)
+        {
+            // ignored
+        }
+
+        return new LanguageDto()
+        {
+            Title = s,
+            IsoCode = s
+        };;
     }
 
     public IEnumerable<PublicationStatusDto> GetAllPublicationStatusesDtosForLibrariesAsync(List<int> libraryIds)
@@ -371,10 +368,18 @@ public class LibraryRepository : ILibraryRepository
         return dict;
     }
 
-    public async Task<IList<Library>> GetAllWithNonWebPCovers()
+    public async Task<IList<Library>> GetAllWithCoversInDifferentEncoding(EncodeFormat encodeFormat)
     {
+        var extension = encodeFormat.GetExtension();
         return await _context.Library
-            .Where(c => !string.IsNullOrEmpty(c.CoverImage) && !c.CoverImage.EndsWith(".webp"))
+            .Where(c => !string.IsNullOrEmpty(c.CoverImage) && !c.CoverImage.EndsWith(extension))
             .ToListAsync();
+    }
+
+    public async Task<bool> GetAllowsScrobblingBySeriesId(int seriesId)
+    {
+        return await _context.Series.Where(s => s.Id == seriesId)
+            .Select(s => s.Library.AllowScrobbling)
+            .SingleOrDefaultAsync();
     }
 }

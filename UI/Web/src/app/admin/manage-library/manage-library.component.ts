@@ -1,8 +1,14 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  DestroyRef,
+  inject,
+  OnInit
+} from '@angular/core';
+import { NgbModal, NgbTooltip } from '@ng-bootstrap/ng-bootstrap';
 import { ToastrService } from 'ngx-toastr';
-import { Subject } from 'rxjs';
-import { distinctUntilChanged, filter, take, takeUntil } from 'rxjs/operators';
+import { distinctUntilChanged, filter, take } from 'rxjs/operators';
 import { ConfirmService } from 'src/app/shared/confirm.service';
 import { LibrarySettingsModalComponent } from 'src/app/sidenav/_modals/library-settings-modal/library-settings-modal.component';
 import { NotificationProgressEvent } from 'src/app/_models/events/notification-progress-event';
@@ -10,14 +16,24 @@ import { ScanSeriesEvent } from 'src/app/_models/events/scan-series-event';
 import { Library } from 'src/app/_models/library';
 import { LibraryService } from 'src/app/_services/library.service';
 import { EVENTS, Message, MessageHubService } from 'src/app/_services/message-hub.service';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import { SentenceCasePipe } from '../../pipe/sentence-case.pipe';
+import { TimeAgoPipe } from '../../pipe/time-ago.pipe';
+import { LibraryTypePipe } from '../../pipe/library-type.pipe';
+import { RouterLink } from '@angular/router';
+import { NgFor, NgIf } from '@angular/common';
+import {translate, TranslocoModule} from "@ngneat/transloco";
+import {DefaultDatePipe} from "../../pipe/default-date.pipe";
 
 @Component({
-  selector: 'app-manage-library',
-  templateUrl: './manage-library.component.html',
-  styleUrls: ['./manage-library.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'app-manage-library',
+    templateUrl: './manage-library.component.html',
+    styleUrls: ['./manage-library.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: true,
+  imports: [NgFor, RouterLink, NgbTooltip, NgIf, LibraryTypePipe, TimeAgoPipe, SentenceCasePipe, TranslocoModule, DefaultDatePipe]
 })
-export class ManageLibraryComponent implements OnInit, OnDestroy {
+export class ManageLibraryComponent implements OnInit {
 
   libraries: Library[] = [];
   loading = false;
@@ -26,10 +42,9 @@ export class ManageLibraryComponent implements OnInit, OnDestroy {
    */
   deletionInProgress: boolean = false;
   libraryTrackBy = (index: number, item: Library) => `${item.name}_${item.lastScanned}_${item.type}_${item.folders.length}`;
+  private readonly destroyRef = inject(DestroyRef);
 
-  private readonly onDestroy = new Subject<void>();
-
-  constructor(private modalService: NgbModal, private libraryService: LibraryService, 
+  constructor(private modalService: NgbModal, private libraryService: LibraryService,
     private toastr: ToastrService, private confirmService: ConfirmService,
     private hubService: MessageHubService, private readonly cdRef: ChangeDetectorRef) { }
 
@@ -37,10 +52,10 @@ export class ManageLibraryComponent implements OnInit, OnDestroy {
     this.getLibraries();
 
     // when a progress event comes in, show it on the UI next to library
-    this.hubService.messages$.pipe(takeUntil(this.onDestroy), 
-      filter(event => event.event === EVENTS.ScanSeries || event.event === EVENTS.NotificationProgress), 
-      distinctUntilChanged((prev: Message<ScanSeriesEvent | NotificationProgressEvent>, curr: Message<ScanSeriesEvent | NotificationProgressEvent>) => 
-        this.hasMessageChanged(prev, curr))) 
+    this.hubService.messages$.pipe(takeUntilDestroyed(this.destroyRef),
+      filter(event => event.event === EVENTS.ScanSeries || event.event === EVENTS.NotificationProgress),
+      distinctUntilChanged((prev: Message<ScanSeriesEvent | NotificationProgressEvent>, curr: Message<ScanSeriesEvent | NotificationProgressEvent>) =>
+        this.hasMessageChanged(prev, curr)))
       .subscribe((event: Message<ScanSeriesEvent | NotificationProgressEvent>) => {
         let libId = 0;
         if (event.event === EVENTS.ScanSeries) {
@@ -62,11 +77,6 @@ export class ManageLibraryComponent implements OnInit, OnDestroy {
     });
   }
 
-  ngOnDestroy() {
-    this.onDestroy.next();
-    this.onDestroy.complete();
-  }
-
   hasMessageChanged(prev: Message<ScanSeriesEvent | NotificationProgressEvent>, curr: Message<ScanSeriesEvent | NotificationProgressEvent>) {
     if (curr.event !== prev.event) return true;
     if (curr.event === EVENTS.ScanSeries) {
@@ -81,8 +91,8 @@ export class ManageLibraryComponent implements OnInit, OnDestroy {
   getLibraries() {
     this.loading = true;
     this.cdRef.markForCheck();
-    this.libraryService.getLibraries().pipe(take(1)).subscribe(libraries => {
-      this.libraries = libraries;
+    this.libraryService.getLibraries().pipe(take(1), takeUntilDestroyed(this.destroyRef)).subscribe(libraries => {
+      this.libraries = [...libraries];
       this.loading = false;
       this.cdRef.markForCheck();
     });
@@ -91,7 +101,7 @@ export class ManageLibraryComponent implements OnInit, OnDestroy {
   editLibrary(library: Library) {
     const modalRef = this.modalService.open(LibrarySettingsModalComponent, {  size: 'xl' });
     modalRef.componentInstance.library = library;
-    modalRef.closed.pipe(takeUntil(this.onDestroy)).subscribe(refresh => {
+    modalRef.closed.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(refresh => {
       if (refresh) {
         this.getLibraries();
       }
@@ -100,7 +110,7 @@ export class ManageLibraryComponent implements OnInit, OnDestroy {
 
   addLibrary() {
     const modalRef = this.modalService.open(LibrarySettingsModalComponent, {  size: 'xl' });
-    modalRef.closed.pipe(takeUntil(this.onDestroy)).subscribe(refresh => {
+    modalRef.closed.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(refresh => {
       if (refresh) {
         this.getLibraries();
       }
@@ -108,20 +118,20 @@ export class ManageLibraryComponent implements OnInit, OnDestroy {
   }
 
   async deleteLibrary(library: Library) {
-    if (await this.confirmService.confirm('Are you sure you want to delete this library? You cannot undo this action.')) {
+    if (await this.confirmService.confirm(translate('toasts.confirm-library-delete', {name: library.name}))) {
       this.deletionInProgress = true;
       this.libraryService.delete(library.id).pipe(take(1)).subscribe(() => {
         this.deletionInProgress = false;
         this.cdRef.markForCheck();
         this.getLibraries();
-        this.toastr.success('Library has been removed');
+        this.toastr.success(translate('toasts.library-deleted', {name: library.name}));
       });
     }
   }
 
   scanLibrary(library: Library) {
     this.libraryService.scan(library.id).pipe(take(1)).subscribe(() => {
-      this.toastr.info('A scan has been queued for ' + library.name);
+      this.toastr.info(translate('toasts.scan-queued', {name: library.name}));
     });
   }
 }

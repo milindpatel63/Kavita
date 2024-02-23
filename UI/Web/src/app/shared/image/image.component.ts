@@ -1,25 +1,37 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, Input, OnChanges, OnDestroy, Renderer2, ViewChild } from '@angular/core';
-import { Subject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component, DestroyRef,
+  ElementRef,
+  inject,
+  Input,
+  OnChanges,
+  Renderer2,
+  ViewChild
+} from '@angular/core';
 import { CoverUpdateEvent } from 'src/app/_models/events/cover-update-event';
 import { ImageService } from 'src/app/_services/image.service';
 import { EVENTS, MessageHubService } from 'src/app/_services/message-hub.service';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {CommonModule} from "@angular/common";
 
 /**
  * This is used for images with placeholder fallback.
  */
 @Component({
   selector: 'app-image',
+  standalone: true,
+  imports: [CommonModule],
   templateUrl: './image.component.html',
   styleUrls: ['./image.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class ImageComponent implements OnChanges, OnDestroy {
+export class ImageComponent implements OnChanges {
 
   /**
    * Source url to load image
    */
-  @Input() imageUrl!: string;
+  @Input({required: true}) imageUrl!: string;
   /**
    * Width of the image. If not defined, will not be applied
    */
@@ -54,21 +66,20 @@ export class ImageComponent implements OnChanges, OnDestroy {
    @Input() processEvents: boolean = true;
 
   @ViewChild('img', {static: true}) imgElem!: ElementRef<HTMLImageElement>;
-
-  private readonly onDestroy = new Subject<void>();
+  private readonly destroyRef = inject(DestroyRef);
 
   constructor(public imageService: ImageService, private renderer: Renderer2, private hubService: MessageHubService, private changeDetectionRef: ChangeDetectorRef) {
-    this.hubService.messages$.pipe(takeUntil(this.onDestroy)).subscribe(res => {
+    this.hubService.messages$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(res => {
       if (!this.processEvents) return;
       if (res.event === EVENTS.CoverUpdate) {
         const updateEvent = res.payload as CoverUpdateEvent;
         if (this.imageUrl === undefined || this.imageUrl === null || this.imageUrl === '') return;
-        const enityType = this.imageService.getEntityTypeFromUrl(this.imageUrl);
-        if (enityType === updateEvent.entityType) {
+        const entityType = this.imageService.getEntityTypeFromUrl(this.imageUrl);
+        if (entityType === updateEvent.entityType) {
           const tokens = this.imageUrl.split('?')[1].split('&');
 
           //...seriesId=123&random=
-          let id = tokens[0].replace(enityType + 'Id=', '');
+          let id = tokens[0].replace(entityType + 'Id=', '');
           if (id.includes('&')) {
             id = id.split('&')[0];
           }
@@ -109,11 +120,6 @@ export class ImageComponent implements OnChanges, OnDestroy {
     if (this.background != '') {
       this.renderer.setStyle(this.imgElem.nativeElement, 'background', this.background);
     }
-  }
-
-  ngOnDestroy() {
-    this.onDestroy.next();
-    this.onDestroy.complete();
   }
 
 }

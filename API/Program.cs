@@ -4,6 +4,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
 using API.Data;
+using API.Data.ManualMigrations;
 using API.Entities;
 using API.Entities.Enums;
 using API.Logging;
@@ -49,10 +50,13 @@ public class Program
             Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") != Environments.Development)
         {
             Log.Logger.Information("Generating JWT TokenKey for encrypting user sessions...");
-            var rBytes = new byte[128];
+            var rBytes = new byte[256];
             RandomNumberGenerator.Create().GetBytes(rBytes);
             Configuration.JwtToken = Convert.ToBase64String(rBytes).Replace("/", string.Empty);
         }
+
+        Configuration.KavitaPlusApiUrl = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == Environments.Development
+            ?  "http://localhost:5020" : "https://plus.kavitareader.com";
 
         try
         {
@@ -66,7 +70,8 @@ public class Program
                 var logger = services.GetRequiredService<ILogger<Program>>();
                 var context = services.GetRequiredService<DataContext>();
                 var pendingMigrations = await context.Database.GetPendingMigrationsAsync();
-                if (pendingMigrations.Any())
+                var isDbCreated = await context.Database.CanConnectAsync();
+                if (isDbCreated && pendingMigrations.Any())
                 {
                     logger.LogInformation("Performing backup as migrations are needed. Backup will be kavita.db in temp folder");
                     var migrationDirectory = await GetMigrationDirectory(context, directoryService);
@@ -78,16 +83,6 @@ public class Program
                         directoryService.CopyFileToDirectory(directoryService.FileSystem.Path.Join(directoryService.ConfigDirectory, "kavita.db"), migrationDirectory);
                         logger.LogInformation("Database backed up to {MigrationDirectory}", migrationDirectory);
                     }
-                }
-
-                // This must run before the migration
-                try
-                {
-                    await MigrateSeriesRelationsExport.Migrate(context, logger);
-                }
-                catch (Exception)
-                {
-                    // If fresh install, could fail and we should just carry on as it's not applicable
                 }
 
                 await context.Database.MigrateAsync();
@@ -173,13 +168,13 @@ public class Program
                 webBuilder.UseKestrel((opts) =>
                 {
                     var ipAddresses = Configuration.IpAddresses;
-                    if (new OsInfo(Array.Empty<IOsVersionAdapter>()).IsDocker || string.IsNullOrEmpty(ipAddresses) || ipAddresses.Equals(Configuration.DefaultIpAddresses))
+                    if (OsInfo.IsDocker || string.IsNullOrEmpty(ipAddresses) || ipAddresses.Equals(Configuration.DefaultIpAddresses))
                     {
                         opts.ListenAnyIP(HttpPort, options => { options.Protocols = HttpProtocols.Http1AndHttp2; });
                     }
                     else
                     {
-                        foreach (var ipAddress in ipAddresses.Split(','))
+                        foreach (var ipAddress in ipAddresses.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
                         {
                             try
                             {
@@ -194,9 +189,6 @@ public class Program
                     }
                 });
 
-                    webBuilder.UseStartup<Startup>();
+                webBuilder.UseStartup<Startup>();
             });
-
-
-
 }

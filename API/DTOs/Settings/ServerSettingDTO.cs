@@ -1,9 +1,11 @@
-﻿using API.Services;
+﻿using API.Entities.Enums;
+using API.Services;
 
 namespace API.DTOs.Settings;
 
 public class ServerSettingDto
 {
+
     public string CacheDirectory { get; set; } = default!;
     public string TaskScan { get; set; } = default!;
     /// <summary>
@@ -47,9 +49,11 @@ public class ServerSettingDto
     /// </summary>
     public string InstallId { get; set; } = default!;
     /// <summary>
-    /// If the server should save bookmarks as WebP encoding
+    /// The format that should be used when saving media for Kavita
     /// </summary>
-    public bool ConvertBookmarkToWebP { get; set; }
+    /// <example>This includes things like: Covers, Bookmarks, Favicons</example>
+    public EncodeFormat EncodeMediaAs { get; set; }
+
     /// <summary>
     /// The amount of Backups before cleanup
     /// </summary>
@@ -65,11 +69,23 @@ public class ServerSettingDto
     /// <remarks>Value should be between 1 and 30</remarks>
     public int TotalLogs { get; set; }
     /// <summary>
-    /// If the server should save covers as WebP encoding
-    /// </summary>
-    public bool ConvertCoverToWebP { get; set; }
-    /// <summary>
     /// The Host name (ie Reverse proxy domain name) for the server
     /// </summary>
     public string HostName { get; set; }
+    /// <summary>
+    /// The size in MB for Caching API data
+    /// </summary>
+    public long CacheSize { get; set; }
+    /// <summary>
+    /// How many Days since today in the past for reading progress, should content be considered for On Deck, before it gets removed automatically
+    /// </summary>
+    public int OnDeckProgressDays { get; set; }
+    /// <summary>
+    /// How many Days since today in the past for chapter updates, should content be considered for On Deck, before it gets removed automatically
+    /// </summary>
+    public int OnDeckUpdateDays { get; set; }
+    /// <summary>
+    /// How large the cover images should be
+    /// </summary>
+    public CoverImageSize CoverImageSize { get; set; }
 }

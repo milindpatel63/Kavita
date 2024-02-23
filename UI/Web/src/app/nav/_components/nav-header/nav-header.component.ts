@@ -1,71 +1,85 @@
-import { DOCUMENT } from '@angular/common';
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, Inject, OnDestroy, OnInit, ViewChild } from '@angular/core';
-import { NavigationEnd, Router } from '@angular/router';
-import { fromEvent, Subject } from 'rxjs';
-import { debounceTime, distinctUntilChanged, filter, takeUntil, tap } from 'rxjs/operators';
-import { FilterQueryParam } from 'src/app/shared/_services/filter-utilities.service';
-import { Chapter } from 'src/app/_models/chapter';
-import { CollectionTag } from 'src/app/_models/collection-tag';
-import { Library } from 'src/app/_models/library';
-import { MangaFile } from 'src/app/_models/manga-file';
-import { PersonRole } from 'src/app/_models/metadata/person';
-import { ReadingList } from 'src/app/_models/reading-list';
-import { SearchResult } from 'src/app/_models/search/search-result';
-import { SearchResultGroup } from 'src/app/_models/search/search-result-group';
-import { AccountService } from 'src/app/_services/account.service';
-import { ImageService } from 'src/app/_services/image.service';
-import { NavService } from 'src/app/_services/nav.service';
-import { ScrollService } from 'src/app/_services/scroll.service';
-import { SearchService } from 'src/app/_services/search.service';
+import {AsyncPipe, DOCUMENT, NgIf, NgOptimizedImage} from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  DestroyRef,
+  ElementRef,
+  inject,
+  Inject,
+  OnInit,
+  ViewChild
+} from '@angular/core';
+import {NavigationEnd, Router, RouterLink, RouterLinkActive} from '@angular/router';
+import {fromEvent} from 'rxjs';
+import {debounceTime, distinctUntilChanged, filter, tap} from 'rxjs/operators';
+import {Chapter} from 'src/app/_models/chapter';
+import {CollectionTag} from 'src/app/_models/collection-tag';
+import {Library} from 'src/app/_models/library';
+import {MangaFile} from 'src/app/_models/manga-file';
+import {PersonRole} from 'src/app/_models/metadata/person';
+import {ReadingList} from 'src/app/_models/reading-list';
+import {SearchResult} from 'src/app/_models/search/search-result';
+import {SearchResultGroup} from 'src/app/_models/search/search-result-group';
+import {AccountService} from 'src/app/_services/account.service';
+import {ImageService} from 'src/app/_services/image.service';
+import {NavService} from 'src/app/_services/nav.service';
+import {ScrollService} from 'src/app/_services/scroll.service';
+import {SearchService} from 'src/app/_services/search.service';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {SentenceCasePipe} from '../../../pipe/sentence-case.pipe';
+import {PersonRolePipe} from '../../../pipe/person-role.pipe';
+import {NgbDropdown, NgbDropdownItem, NgbDropdownMenu, NgbDropdownToggle} from '@ng-bootstrap/ng-bootstrap';
+import {EventsWidgetComponent} from '../events-widget/events-widget.component';
+import {SeriesFormatComponent} from '../../../shared/series-format/series-format.component';
+import {ImageComponent} from '../../../shared/image/image.component';
+import {GroupedTypeaheadComponent} from '../grouped-typeahead/grouped-typeahead.component';
+import {TranslocoDirective} from "@ngneat/transloco";
+import {FilterUtilitiesService} from "../../../shared/_services/filter-utilities.service";
+import {FilterStatement} from "../../../_models/metadata/v2/filter-statement";
+import {FilterField} from "../../../_models/metadata/v2/filter-field";
+import {FilterComparison} from "../../../_models/metadata/v2/filter-comparison";
 
 @Component({
-  selector: 'app-nav-header',
-  templateUrl: './nav-header.component.html',
-  styleUrls: ['./nav-header.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'app-nav-header',
+    templateUrl: './nav-header.component.html',
+    styleUrls: ['./nav-header.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: true,
+  imports: [NgIf, RouterLink, RouterLinkActive, NgOptimizedImage, GroupedTypeaheadComponent, ImageComponent, SeriesFormatComponent, EventsWidgetComponent, NgbDropdown, NgbDropdownToggle, NgbDropdownMenu, NgbDropdownItem, AsyncPipe, PersonRolePipe, SentenceCasePipe, TranslocoDirective]
 })
-export class NavHeaderComponent implements OnInit, OnDestroy {
+export class NavHeaderComponent implements OnInit {
 
   @ViewChild('search') searchViewRef!: any;
+  private readonly destroyRef = inject(DestroyRef);
 
   isLoading = false;
   debounceTime = 300;
-  imageStyles = {width: '24px', 'margin-top': '5px'};
   searchResults: SearchResultGroup = new SearchResultGroup();
   searchTerm = '';
-  customFilter: (items: SearchResult[], query: string) => SearchResult[] = (items: SearchResult[], query: string) => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const matches = items.filter(item => {
-      const normalizedSeriesName = item.name.toLowerCase().trim();
-      const normalizedOriginalName = item.originalName.toLowerCase().trim();
-      const normalizedLocalizedName = item.localizedName.toLowerCase().trim();
-      return normalizedSeriesName.indexOf(normalizedQuery) >= 0 || normalizedOriginalName.indexOf(normalizedQuery) >= 0 || normalizedLocalizedName.indexOf(normalizedQuery) >= 0;
-    });
-    return matches;
-  };
 
 
   backToTopNeeded = false;
   searchFocused: boolean = false;
   scrollElem: HTMLElement;
-  private readonly onDestroy = new Subject<void>();
+  protected readonly FilterField = FilterField;
 
   constructor(public accountService: AccountService, private router: Router, public navService: NavService,
     public imageService: ImageService, @Inject(DOCUMENT) private document: Document,
-    private scrollService: ScrollService, private searchService: SearchService, private readonly cdRef: ChangeDetectorRef) {
+    private scrollService: ScrollService, private searchService: SearchService, private readonly cdRef: ChangeDetectorRef,
+    private filterUtilityService: FilterUtilitiesService) {
       this.scrollElem = this.document.body;
-    }
+  }
 
   ngOnInit(): void {
-    this.scrollService.scrollContainer$.pipe(distinctUntilChanged(), takeUntil(this.onDestroy), tap((scrollContainer) => {
+    this.scrollService.scrollContainer$.pipe(distinctUntilChanged(), takeUntilDestroyed(this.destroyRef), tap((scrollContainer) => {
       if (scrollContainer === 'body' || scrollContainer === undefined) {
         this.scrollElem = this.document.body;
-        fromEvent(this.document.body, 'scroll').pipe(debounceTime(20)).subscribe(() => this.checkBackToTopNeeded(this.document.body));
       } else {
         const elem = scrollContainer as ElementRef<HTMLDivElement>;
         this.scrollElem = elem.nativeElement;
-        fromEvent(elem.nativeElement, 'scroll').pipe(debounceTime(20)).subscribe(() => this.checkBackToTopNeeded(elem.nativeElement));
       }
+      fromEvent(this.scrollElem, 'scroll').pipe(debounceTime(20)).subscribe(() => this.checkBackToTopNeeded(this.scrollElem));
     })).subscribe();
 
     // Sometimes the top event emitter can be slow, so let's also check when a navigation occurs and recalculate
@@ -86,11 +100,6 @@ export class NavHeaderComponent implements OnInit, OnDestroy {
     this.cdRef.markForCheck();
   }
 
-  ngOnDestroy() {
-    this.onDestroy.next();
-    this.onDestroy.complete();
-  }
-
   logout() {
     this.accountService.logout();
     this.navService.hideNavBar();
@@ -109,11 +118,11 @@ export class NavHeaderComponent implements OnInit, OnDestroy {
       this.searchTerm = val.trim();
       this.cdRef.markForCheck();
 
-      this.searchService.search(val.trim()).pipe(takeUntil(this.onDestroy)).subscribe(results => {
+      this.searchService.search(val.trim()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(results => {
         this.searchResults = results;
         this.isLoading = false;
         this.cdRef.markForCheck();
-      }, err => {
+      }, () => {
         this.searchResults.reset();
         this.isLoading = false;
         this.searchTerm = '';
@@ -121,49 +130,54 @@ export class NavHeaderComponent implements OnInit, OnDestroy {
       });
   }
 
-  goTo(queryParamName: string, filter: any) {
+  goTo(statement: FilterStatement) {
     let params: any = {};
-    params[queryParamName] = filter;
-    params[FilterQueryParam.Page] = 1;
+    const filter = this.filterUtilityService.createSeriesV2Filter();
+    filter.statements = [statement];
+    params['page'] = 1;
     this.clearSearch();
-    this.router.navigate(['all-series'], {queryParams: params});
+    this.filterUtilityService.applyFilterWithParams(['all-series'], filter, params);
+  }
+
+  goToOther(field: FilterField, value: string) {
+    this.goTo({field, comparison: FilterComparison.Equal, value});
   }
 
   goToPerson(role: PersonRole, filter: any) {
     this.clearSearch();
     switch(role) {
       case PersonRole.Writer:
-        this.goTo(FilterQueryParam.Writers, filter);
+        this.goTo({field: FilterField.Writers, comparison: FilterComparison.Equal, value: filter});
         break;
       case PersonRole.Artist:
-        this.goTo(FilterQueryParam.Artists, filter);
+        this.goTo({field: FilterField.CoverArtist, comparison: FilterComparison.Equal, value: filter}); // TODO: What is this supposed to be?
         break;
       case PersonRole.Character:
-        this.goTo(FilterQueryParam.Character, filter);
+        this.goTo({field: FilterField.Characters, comparison: FilterComparison.Equal, value: filter});
         break;
       case PersonRole.Colorist:
-        this.goTo(FilterQueryParam.Colorist, filter);
+        this.goTo({field: FilterField.Colorist, comparison: FilterComparison.Equal, value: filter});
         break;
       case PersonRole.Editor:
-        this.goTo(FilterQueryParam.Editor, filter);
+        this.goTo({field: FilterField.Editor, comparison: FilterComparison.Equal, value: filter});
         break;
       case PersonRole.Inker:
-        this.goTo(FilterQueryParam.Inker, filter);
+        this.goTo({field: FilterField.Inker, comparison: FilterComparison.Equal, value: filter});
         break;
       case PersonRole.CoverArtist:
-        this.goTo(FilterQueryParam.CoverArtists, filter);
+        this.goTo({field: FilterField.CoverArtist, comparison: FilterComparison.Equal, value: filter});
         break;
       case PersonRole.Letterer:
-        this.goTo(FilterQueryParam.Letterer, filter);
+        this.goTo({field: FilterField.Letterer, comparison: FilterComparison.Equal, value: filter});
         break;
       case PersonRole.Penciller:
-        this.goTo(FilterQueryParam.Penciller, filter);
+        this.goTo({field: FilterField.Penciller, comparison: FilterComparison.Equal, value: filter});
         break;
       case PersonRole.Publisher:
-        this.goTo(FilterQueryParam.Publisher, filter);
+        this.goTo({field: FilterField.Publisher, comparison: FilterComparison.Equal, value: filter});
         break;
       case PersonRole.Translator:
-        this.goTo(FilterQueryParam.Translator, filter);
+        this.goTo({field: FilterField.Translators, comparison: FilterComparison.Equal, value: filter});
         break;
     }
   }
@@ -228,4 +242,6 @@ export class NavHeaderComponent implements OnInit, OnDestroy {
   hideSideNav() {
     this.navService.toggleSideNav();
   }
+
+
 }

@@ -1,17 +1,27 @@
 import { HttpClient } from '@angular/common/http';
-import { Inject, Injectable } from '@angular/core';
+import {DestroyRef, inject, Inject, Injectable} from '@angular/core';
 import { Series } from 'src/app/_models/series';
 import { environment } from 'src/environments/environment';
 import { ConfirmService } from '../confirm.service';
 import { Chapter } from 'src/app/_models/chapter';
 import { Volume } from 'src/app/_models/volume';
-import { asyncScheduler, BehaviorSubject, Observable, tap, finalize, of, filter } from 'rxjs';
+import {
+  asyncScheduler,
+  BehaviorSubject,
+  Observable,
+  tap,
+  finalize,
+  of,
+  filter,
+} from 'rxjs';
 import { SAVER, Saver } from '../_providers/saver.provider';
 import { download, Download } from '../_models/download';
 import { PageBookmark } from 'src/app/_models/readers/page-bookmark';
-import { switchMap, takeWhile, throttleTime } from 'rxjs/operators';
+import {switchMap, take, takeWhile, throttleTime} from 'rxjs/operators';
 import { AccountService } from 'src/app/_services/account.service';
 import { BytesPipe } from 'src/app/pipe/bytes.pipe';
+import {translate} from "@ngneat/transloco";
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 
 export const DEBOUNCE_TIME = 100;
 
@@ -29,7 +39,7 @@ export interface DownloadEvent {
   /**
    * Progress of the download itself
    */
-  progress: number; 
+  progress: number;
 }
 
 /**
@@ -37,9 +47,10 @@ export interface DownloadEvent {
  */
 export type DownloadEntityType = 'volume' | 'chapter' | 'series' | 'bookmark' | 'logs';
 /**
- * Valid entities for downloading. Undefined exclusively for logs. 
+ * Valid entities for downloading. Undefined exclusively for logs.
  */
 export type DownloadEntity = Series | Volume | Chapter | PageBookmark[] | undefined;
+
 
 @Injectable({
   providedIn: 'root'
@@ -55,14 +66,17 @@ export class DownloadService {
   private downloadsSource: BehaviorSubject<DownloadEvent[]> = new BehaviorSubject<DownloadEvent[]>([]);
   public activeDownloads$ = this.downloadsSource.asObservable();
 
-  constructor(private httpClient: HttpClient, private confirmService: ConfirmService, 
+  private readonly destroyRef = inject(DestroyRef);
+
+  constructor(private httpClient: HttpClient, private confirmService: ConfirmService,
     @Inject(SAVER) private save: Saver, private accountService: AccountService) { }
+
 
   /**
    * Returns the entity subtitle (for the event widget) for a given entity
-   * @param downloadEntityType 
-   * @param downloadEntity 
-   * @returns 
+   * @param downloadEntityType
+   * @param downloadEntity
+   * @returns
    */
    downloadSubtitle(downloadEntityType: DownloadEntityType, downloadEntity: DownloadEntity | undefined) {
     switch (downloadEntityType) {
@@ -81,13 +95,13 @@ export class DownloadService {
 
   /**
    * Downloads the entity to the user's system. This handles everything around downloads. This will prompt the user based on size checks and UserPreferences.PromptForDownload.
-   * This will perform the download at a global level, if you need a handle to the download in question, use downloadService.activeDownloads$ and perform a filter on it. 
-   * @param entityType 
-   * @param entity 
+   * This will perform the download at a global level, if you need a handle to the download in question, use downloadService.activeDownloads$ and perform a filter on it.
+   * @param entityType
+   * @param entity
    * @param callback Optional callback. Returns the download or undefined (if the download is complete).
    */
   download(entityType: DownloadEntityType, entity: DownloadEntity, callback?: (d: Download | undefined) => void) {
-    let sizeCheckCall: Observable<number>; 
+    let sizeCheckCall: Observable<number>;
     let downloadCall: Observable<Download>;
     switch (entityType) {
       case 'series':
@@ -115,7 +129,7 @@ export class DownloadService {
     }
 
 
-    this.accountService.currentUser$.pipe(switchMap(user => {
+    this.accountService.currentUser$.pipe(take(1), switchMap(user => {
       if (user && user.preferences.promptForDownloadSize) {
         return sizeCheckCall;
       }
@@ -136,7 +150,8 @@ export class DownloadService {
         finalize(() => {
           if (callback) callback(undefined);
         }))
-    })).subscribe(() => {});
+    }), takeUntilDestroyed(this.destroyRef)
+    ).subscribe(() => {});
   }
 
   private downloadSeriesSize(seriesId: number) {
@@ -154,12 +169,12 @@ export class DownloadService {
   private downloadLogs() {
     const downloadType = 'logs';
     const subtitle = this.downloadSubtitle(downloadType, undefined);
-    return this.httpClient.get(this.baseUrl + 'server/logs', 
+    return this.httpClient.get(this.baseUrl + 'server/logs',
       {observe: 'events', responseType: 'blob', reportProgress: true}
     ).pipe(
-      throttleTime(DEBOUNCE_TIME, asyncScheduler, { leading: true, trailing: true }), 
+      throttleTime(DEBOUNCE_TIME, asyncScheduler, { leading: true, trailing: true }),
       download((blob, filename) => {
-        this.save(blob, filename);
+        this.save(blob, decodeURIComponent(filename));
       }),
       tap((d) => this.updateDownloadState(d, downloadType, subtitle)),
       finalize(() => this.finalizeDownloadState(downloadType, subtitle))
@@ -169,12 +184,12 @@ export class DownloadService {
   private downloadSeries(series: Series) {
     const downloadType = 'series';
     const subtitle = this.downloadSubtitle(downloadType, series);
-    return this.httpClient.get(this.baseUrl + 'download/series?seriesId=' + series.id, 
+    return this.httpClient.get(this.baseUrl + 'download/series?seriesId=' + series.id,
                       {observe: 'events', responseType: 'blob', reportProgress: true}
             ).pipe(
-              throttleTime(DEBOUNCE_TIME, asyncScheduler, { leading: true, trailing: true }), 
+              throttleTime(DEBOUNCE_TIME, asyncScheduler, { leading: true, trailing: true }),
               download((blob, filename) => {
-                this.save(blob, filename);
+                this.save(blob, decodeURIComponent(filename));
               }),
               tap((d) => this.updateDownloadState(d, downloadType, subtitle)),
               finalize(() => this.finalizeDownloadState(downloadType, subtitle))
@@ -208,12 +223,12 @@ export class DownloadService {
   private downloadChapter(chapter: Chapter) {
     const downloadType = 'chapter';
     const subtitle = this.downloadSubtitle(downloadType, chapter);
-    return this.httpClient.get(this.baseUrl + 'download/chapter?chapterId=' + chapter.id, 
+    return this.httpClient.get(this.baseUrl + 'download/chapter?chapterId=' + chapter.id,
                 {observe: 'events', responseType: 'blob', reportProgress: true}
         ).pipe(
-          throttleTime(DEBOUNCE_TIME, asyncScheduler, { leading: true, trailing: true }), 
+          throttleTime(DEBOUNCE_TIME, asyncScheduler, { leading: true, trailing: true }),
           download((blob, filename) => {
-            this.save(blob, filename);
+            this.save(blob, decodeURIComponent(filename));
           }),
           tap((d) => this.updateDownloadState(d, downloadType, subtitle)),
           finalize(() => this.finalizeDownloadState(downloadType, subtitle))
@@ -223,12 +238,12 @@ export class DownloadService {
   private downloadVolume(volume: Volume): Observable<Download> {
     const downloadType = 'volume';
     const subtitle = this.downloadSubtitle(downloadType, volume);
-    return this.httpClient.get(this.baseUrl + 'download/volume?volumeId=' + volume.id, 
+    return this.httpClient.get(this.baseUrl + 'download/volume?volumeId=' + volume.id,
                       {observe: 'events', responseType: 'blob', reportProgress: true}
             ).pipe(
-              throttleTime(DEBOUNCE_TIME, asyncScheduler, { leading: true, trailing: true }), 
+              throttleTime(DEBOUNCE_TIME, asyncScheduler, { leading: true, trailing: true }),
               download((blob, filename) => {
-                this.save(blob, filename);
+                this.save(blob, decodeURIComponent(filename));
               }),
               tap((d) => this.updateDownloadState(d, downloadType, subtitle)),
               finalize(() => this.finalizeDownloadState(downloadType, subtitle))
@@ -236,19 +251,20 @@ export class DownloadService {
   }
 
   private async confirmSize(size: number, entityType: DownloadEntityType) {
-    return (size < this.SIZE_WARNING || await this.confirmService.confirm('The ' + entityType + '  is ' + bytesPipe.transform(size) + '. Are you sure you want to continue?'));
+    return (size < this.SIZE_WARNING ||
+      await this.confirmService.confirm(translate('toasts.confirm-download-size', {entityType: 'entity-type.' + entityType, size: bytesPipe.transform(size)})));
   }
 
   private downloadBookmarks(bookmarks: PageBookmark[]) {
     const downloadType = 'bookmark';
     const subtitle = this.downloadSubtitle(downloadType, bookmarks);
 
-    return this.httpClient.post(this.baseUrl + 'download/bookmarks', {bookmarks}, 
+    return this.httpClient.post(this.baseUrl + 'download/bookmarks', {bookmarks},
                       {observe: 'events', responseType: 'blob', reportProgress: true}
             ).pipe(
-              throttleTime(DEBOUNCE_TIME, asyncScheduler, { leading: true, trailing: true }), 
+              throttleTime(DEBOUNCE_TIME, asyncScheduler, { leading: true, trailing: true }),
               download((blob, filename) => {
-                this.save(blob, filename);
+                this.save(blob, decodeURIComponent(filename));
               }),
               tap((d) => this.updateDownloadState(d, downloadType, subtitle)),
               finalize(() => this.finalizeDownloadState(downloadType, subtitle))

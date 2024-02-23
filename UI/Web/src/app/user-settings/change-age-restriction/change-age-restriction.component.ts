@@ -1,18 +1,33 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, OnDestroy, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component, DestroyRef,
+  EventEmitter,
+  inject,
+  OnInit
+} from '@angular/core';
 import { ToastrService } from 'ngx-toastr';
-import { Observable, of, Subject, takeUntil, shareReplay, map, take } from 'rxjs';
+import { Observable, of, shareReplay, map, take } from 'rxjs';
 import { AgeRestriction } from 'src/app/_models/metadata/age-restriction';
 import { AgeRating } from 'src/app/_models/metadata/age-rating';
 import { User } from 'src/app/_models/user';
 import { AccountService } from 'src/app/_services/account.service';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import { AgeRatingPipe } from '../../pipe/age-rating.pipe';
+import { RestrictionSelectorComponent } from '../restriction-selector/restriction-selector.component';
+import { NgbCollapse } from '@ng-bootstrap/ng-bootstrap';
+import { NgIf, AsyncPipe } from '@angular/common';
+import {translate, TranslocoDirective} from "@ngneat/transloco";
 
 @Component({
-  selector: 'app-change-age-restriction',
-  templateUrl: './change-age-restriction.component.html',
-  styleUrls: ['./change-age-restriction.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'app-change-age-restriction',
+    templateUrl: './change-age-restriction.component.html',
+    styleUrls: ['./change-age-restriction.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: true,
+    imports: [NgIf, NgbCollapse, RestrictionSelectorComponent, AsyncPipe, AgeRatingPipe, TranslocoDirective]
 })
-export class ChangeAgeRestrictionComponent implements OnInit, OnDestroy {
+export class ChangeAgeRestrictionComponent implements OnInit {
 
   user: User | undefined = undefined;
   hasChangeAgeRestrictionAbility: Observable<boolean> = of(false);
@@ -20,22 +35,21 @@ export class ChangeAgeRestrictionComponent implements OnInit, OnDestroy {
   selectedRestriction!: AgeRestriction;
   originalRestriction!: AgeRestriction;
   reset: EventEmitter<AgeRestriction> = new EventEmitter();
+  private readonly destroyRef = inject(DestroyRef);
 
-  get AgeRating() { return AgeRating; } 
-
-  private onDestroy = new Subject<void>();
+  get AgeRating() { return AgeRating; }
 
   constructor(private accountService: AccountService, private toastr: ToastrService, private readonly cdRef: ChangeDetectorRef) { }
 
   ngOnInit(): void {
-    this.accountService.currentUser$.pipe(takeUntil(this.onDestroy), shareReplay(), take(1)).subscribe(user => {
+    this.accountService.currentUser$.pipe(takeUntilDestroyed(this.destroyRef), shareReplay(), take(1)).subscribe(user => {
       if (!user) return;
       this.user = user;
       this.originalRestriction = this.user.ageRestriction;
       this.cdRef.markForCheck();
     });
-    
-    this.hasChangeAgeRestrictionAbility = this.accountService.currentUser$.pipe(takeUntil(this.onDestroy), shareReplay(), map(user => {
+
+    this.hasChangeAgeRestrictionAbility = this.accountService.currentUser$.pipe(takeUntilDestroyed(this.destroyRef), shareReplay(), map(user => {
       return user !== undefined && (!this.accountService.hasAdminRole(user) && this.accountService.hasChangeAgeRestrictionRole(user));
     }));
     this.cdRef.markForCheck();
@@ -43,11 +57,6 @@ export class ChangeAgeRestrictionComponent implements OnInit, OnDestroy {
 
   updateRestrictionSelection(restriction: AgeRestriction) {
     this.selectedRestriction = restriction;
-  }
-
-  ngOnDestroy() {
-    this.onDestroy.next();
-    this.onDestroy.complete();
   }
 
   resetForm() {
@@ -60,7 +69,7 @@ export class ChangeAgeRestrictionComponent implements OnInit, OnDestroy {
     if (this.user === undefined) { return; }
 
     this.accountService.updateAgeRestriction(this.selectedRestriction.ageRating, this.selectedRestriction.includeUnknowns).subscribe(() => {
-      this.toastr.success('Age Restriction has been updated');
+      this.toastr.success(translate('toasts.age-restriction-updated'));
       this.originalRestriction = this.selectedRestriction;
       if (this.user) {
         this.user.ageRestriction.ageRating = this.selectedRestriction.ageRating;

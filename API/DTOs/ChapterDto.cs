@@ -9,7 +9,7 @@ namespace API.DTOs;
 /// A Chapter is the lowest grouping of a reading medium. A Chapter contains a set of MangaFiles which represents the underlying
 /// file (abstracted from type).
 /// </summary>
-public class ChapterDto : IHasReadTimeEstimate, IEntityDate
+public class ChapterDto : IHasReadTimeEstimate
 {
     public int Id { get; init; }
     /// <summary>
@@ -45,6 +45,10 @@ public class ChapterDto : IHasReadTimeEstimate, IEntityDate
     /// </summary>
     public DateTime LastReadingProgressUtc { get; set; }
     /// <summary>
+    /// The last time a chapter was read by current authenticated user
+    /// </summary>
+    public DateTime LastReadingProgress { get; set; }
+    /// <summary>
     /// If the Cover Image is locked for this entity
     /// </summary>
     public bool CoverImageLocked { get; set; }
@@ -55,10 +59,13 @@ public class ChapterDto : IHasReadTimeEstimate, IEntityDate
     /// <summary>
     /// When chapter was created
     /// </summary>
-    public DateTime Created { get; set; }
-    public DateTime LastModified { get; set; }
     public DateTime CreatedUtc { get; set; }
     public DateTime LastModifiedUtc { get; set; }
+    /// <summary>
+    /// When chapter was created in local server time
+    /// </summary>
+    /// <remarks>This is required for Tachiyomi Extension</remarks>
+    public DateTime Created { get; set; }
     /// <summary>
     /// When the chapter was released.
     /// </summary>
@@ -93,4 +100,13 @@ public class ChapterDto : IHasReadTimeEstimate, IEntityDate
     public int MaxHoursToRead { get; set; }
     /// <inheritdoc cref="IHasReadTimeEstimate.AvgHoursToRead"/>
     public int AvgHoursToRead { get; set; }
+    /// <summary>
+    /// Comma-separated link of urls to external services that have some relation to the Chapter
+    /// </summary>
+    public string WebLinks { get; set; }
+    /// <summary>
+    /// ISBN-13 (usually) of the Chapter
+    /// </summary>
+    /// <remarks>This is guaranteed to be Valid</remarks>
+    public string ISBN { get; set; }
 }

@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
-import { Injectable, OnDestroy } from '@angular/core';
-import { of, ReplaySubject, Subject } from 'rxjs';
-import { filter, map, switchMap, takeUntil } from 'rxjs/operators';
+import {DestroyRef, inject, Injectable } from '@angular/core';
+import {catchError, of, ReplaySubject, throwError} from 'rxjs';
+import {filter, map, switchMap, tap} from 'rxjs/operators';
 import { environment } from 'src/environments/environment';
 import { Preferences } from '../_models/preferences/preferences';
 import { User } from '../_models/user';
@@ -14,49 +14,51 @@ import { UpdateEmailResponse } from '../_models/auth/update-email-response';
 import { AgeRating } from '../_models/metadata/age-rating';
 import { AgeRestriction } from '../_models/metadata/age-restriction';
 import { TextResonse } from '../_types/text-response';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 
 export enum Role {
   Admin = 'Admin',
   ChangePassword = 'Change Password',
   Bookmark = 'Bookmark',
   Download = 'Download',
-  ChangeRestriction = 'Change Restriction' 
+  ChangeRestriction = 'Change Restriction'
 }
 
 @Injectable({
   providedIn: 'root'
 })
-export class AccountService implements OnDestroy {
+export class AccountService {
 
+  private readonly destroyRef = inject(DestroyRef);
   baseUrl = environment.apiUrl;
   userKey = 'kavita-user';
-  public lastLoginKey = 'kavita-lastlogin';
-  currentUser: User | undefined;
+  public static lastLoginKey = 'kavita-lastlogin';
+  public static localeKey = 'kavita-locale';
+  private currentUser: User | undefined;
 
   // Stores values, when someone subscribes gives (1) of last values seen.
   private currentUserSource = new ReplaySubject<User | undefined>(1);
-  currentUser$ = this.currentUserSource.asObservable();
+  public currentUser$ = this.currentUserSource.asObservable();
+
+  private hasValidLicenseSource = new ReplaySubject<boolean>(1);
+  /**
+   * Does the user have an active license
+   */
+  public hasValidLicense$ = this.hasValidLicenseSource.asObservable();
 
   /**
    * SetTimeout handler for keeping track of refresh token call
    */
   private refreshTokenTimeout: ReturnType<typeof setTimeout> | undefined;
 
-  private readonly onDestroy = new Subject<void>();
-
-  constructor(private httpClient: HttpClient, private router: Router, 
+  constructor(private httpClient: HttpClient, private router: Router,
     private messageHub: MessageHubService, private themeService: ThemeService) {
-      messageHub.messages$.pipe(filter(evt => evt.event === EVENTS.UserUpdate), 
+      messageHub.messages$.pipe(filter(evt => evt.event === EVENTS.UserUpdate),
         map(evt => evt.payload as UserUpdateEvent),
-        filter(userUpdateEvent => userUpdateEvent.userName === this.currentUser?.username),  
-        switchMap(() => this.refreshToken()))
+        filter(userUpdateEvent => userUpdateEvent.userName === this.currentUser?.username),
+        switchMap(() => this.refreshAccount()))
         .subscribe(() => {});
     }
-  
-  ngOnDestroy(): void {
-    this.onDestroy.next();
-    this.onDestroy.complete();
-  }
 
   hasAdminRole(user: User) {
     return user && user.roles.includes(Role.Admin);
@@ -82,6 +84,36 @@ export class AccountService implements OnDestroy {
     return this.httpClient.get<string[]>(this.baseUrl + 'account/roles');
   }
 
+  deleteLicense() {
+    return this.httpClient.delete<string>(this.baseUrl + 'license', TextResonse);
+  }
+
+  hasValidLicense(forceCheck: boolean = false) {
+    return this.httpClient.get<string>(this.baseUrl + 'license/valid-license?forceCheck=' + forceCheck, TextResonse)
+      .pipe(
+        map(res => res === "true"),
+        tap(res => {
+          this.hasValidLicenseSource.next(res)
+        }),
+        catchError(error => {
+          this.hasValidLicenseSource.next(false);
+          return throwError(error); // Rethrow the error to propagate it further
+        })
+      );
+  }
+
+  hasAnyLicense() {
+    return this.httpClient.get<string>(this.baseUrl + 'license/has-license', TextResonse)
+      .pipe(
+        map(res => res === "true"),
+      );
+  }
+
+  updateUserLicense(license: string, email: string) {
+  return this.httpClient.post<string>(this.baseUrl + 'license', {license, email}, TextResonse)
+    .pipe(map(res => res === "true"));
+  }
+
   login(model: {username: string, password: string}) {
     return this.httpClient.post<User>(this.baseUrl + 'account/login', model).pipe(
       map((response: User) => {
@@ -91,7 +123,7 @@ export class AccountService implements OnDestroy {
           this.messageHub.createHubConnection(user, this.hasAdminRole(user));
         }
       }),
-      takeUntil(this.onDestroy)
+      takeUntilDestroyed(this.destroyRef)
     );
   }
 
@@ -102,7 +134,7 @@ export class AccountService implements OnDestroy {
       Array.isArray(roles) ? user.roles = roles : user.roles.push(roles);
 
       localStorage.setItem(this.userKey, JSON.stringify(user));
-      localStorage.setItem(this.lastLoginKey, user.username);
+      localStorage.setItem(AccountService.lastLoginKey, user.username);
       if (user.preferences && user.preferences.theme) {
         this.themeService.setTheme(user.preferences.theme.name);
       } else {
@@ -114,11 +146,13 @@ export class AccountService implements OnDestroy {
 
     this.currentUser = user;
     this.currentUserSource.next(user);
-    
-    if (this.currentUser !== undefined) {
+
+    this.stopRefreshTokenTimer();
+
+    if (this.currentUser) {
+      this.messageHub.createHubConnection(this.currentUser, this.hasAdminRole(this.currentUser));
+      this.hasValidLicense().subscribe();
       this.startRefreshTokenTimer();
-    } else {
-      this.stopRefreshTokenTimer();
     }
   }
 
@@ -127,23 +161,23 @@ export class AccountService implements OnDestroy {
     this.currentUserSource.next(undefined);
     this.currentUser = undefined;
     this.stopRefreshTokenTimer();
+    this.messageHub.stopHubConnection();
     // Upon logout, perform redirection
     this.router.navigateByUrl('/login');
-    this.messageHub.stopHubConnection();
   }
 
 
   /**
    * Registers the first admin on the account. Only used for that. All other registrations must occur through invite
-   * @param model 
-   * @returns 
+   * @param model
+   * @returns
    */
   register(model: {username: string, password: string, email: string}) {
     return this.httpClient.post<User>(this.baseUrl + 'account/register', model).pipe(
       map((user: User) => {
         return user;
       }),
-      takeUntil(this.onDestroy)
+      takeUntilDestroyed(this.destroyRef)
     );
   }
 
@@ -177,8 +211,9 @@ export class AccountService implements OnDestroy {
 
   /**
    * Given a user id, returns a full url for setting up the user account
-   * @param userId 
-   * @returns 
+   * @param userId
+   * @param withBaseUrl Should base url be included in invite url
+   * @returns
    */
   getInviteUrl(userId: number, withBaseUrl: boolean = true) {
     return this.httpClient.get<string>(this.baseUrl + 'account/invite-url?userId=' + userId + '&withBaseUrl=' + withBaseUrl, TextResonse);
@@ -214,35 +249,38 @@ export class AccountService implements OnDestroy {
 
   /**
    * This will get latest preferences for a user and cache them into user store
-   * @returns 
+   * @returns
    */
   getPreferences() {
     return this.httpClient.get<Preferences>(this.baseUrl + 'users/get-preferences').pipe(map(pref => {
-      if (this.currentUser !== undefined || this.currentUser != null) {
+      if (this.currentUser !== undefined && this.currentUser !== null) {
         this.currentUser.preferences = pref;
         this.setCurrentUser(this.currentUser);
       }
       return pref;
-    }), takeUntil(this.onDestroy));
+    }), takeUntilDestroyed(this.destroyRef));
   }
 
   updatePreferences(userPreferences: Preferences) {
     return this.httpClient.post<Preferences>(this.baseUrl + 'users/update-preferences', userPreferences).pipe(map(settings => {
-      if (this.currentUser !== undefined || this.currentUser != null) {
+      if (this.currentUser !== undefined && this.currentUser !== null) {
         this.currentUser.preferences = settings;
         this.setCurrentUser(this.currentUser);
+
+        // Update the locale on disk (for logout and compact-number pipe)
+        localStorage.setItem(AccountService.localeKey, this.currentUser.preferences.locale);
       }
       return settings;
-    }), takeUntil(this.onDestroy));
+    }), takeUntilDestroyed(this.destroyRef));
   }
 
   getUserFromLocalStorage(): User | undefined {
 
     const userString = localStorage.getItem(this.userKey);
-    
+
     if (userString) {
       return JSON.parse(userString)
-    };
+    }
 
     return undefined;
   }
@@ -254,7 +292,7 @@ export class AccountService implements OnDestroy {
         user.apiKey = key;
 
         localStorage.setItem(this.userKey, JSON.stringify(user));
-    
+
         this.currentUserSource.next(user);
         this.currentUser = user;
       }
@@ -262,41 +300,56 @@ export class AccountService implements OnDestroy {
     }));
   }
 
+  getOpdsUrl() {
+    return this.httpClient.get<string>(this.baseUrl + 'account/opds-url', TextResonse);
+  }
+
+
+  private refreshAccount() {
+    if (this.currentUser === null || this.currentUser === undefined) return of();
+    return this.httpClient.get<User>(this.baseUrl + 'account/refresh-account').pipe(map((user: User) => {
+      if (user) {
+        this.currentUser = {...user};
+      }
+
+      this.setCurrentUser(this.currentUser);
+      return user;
+    }));
+  }
+
+
   private refreshToken() {
     if (this.currentUser === null || this.currentUser === undefined) return of();
-    
     return this.httpClient.post<{token: string, refreshToken: string}>(this.baseUrl + 'account/refresh-token',
      {token: this.currentUser.token, refreshToken: this.currentUser.refreshToken}).pipe(map(user => {
       if (this.currentUser) {
         this.currentUser.token = user.token;
         this.currentUser.refreshToken = user.refreshToken;
       }
-      
+
       this.setCurrentUser(this.currentUser);
       return user;
     }));
   }
 
+  /**
+   * Every 10 mins refresh the token
+   */
   private startRefreshTokenTimer() {
-    if (this.currentUser === null || this.currentUser === undefined) return;
-
-    if (this.refreshTokenTimeout !== undefined) {
+    if (this.currentUser === null || this.currentUser === undefined) {
       this.stopRefreshTokenTimer();
+      return;
     }
 
-    const jwtToken = JSON.parse(atob(this.currentUser.token.split('.')[1]));
-    // set a timeout to refresh the token 10 mins before it expires
-    const expires = new Date(jwtToken.exp * 1000);
-    const timeout = expires.getTime() - Date.now() - (60 * 10000);
-    this.refreshTokenTimeout = setTimeout(() => this.refreshToken().subscribe(() => {}), timeout);
+    this.stopRefreshTokenTimer();
+
+    this.refreshTokenTimeout = setInterval(() => this.refreshToken().subscribe(() => {}), (60 * 10_000));
   }
 
   private stopRefreshTokenTimer() {
     if (this.refreshTokenTimeout !== undefined) {
-      clearTimeout(this.refreshTokenTimeout);
+      clearInterval(this.refreshTokenTimeout);
     }
   }
-
-
 
 }

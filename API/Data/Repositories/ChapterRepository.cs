@@ -6,6 +6,7 @@ using API.DTOs;
 using API.DTOs.Metadata;
 using API.DTOs.Reader;
 using API.Entities;
+using API.Entities.Enums;
 using API.Extensions;
 using API.Extensions.QueryExtensions;
 using AutoMapper;
@@ -36,7 +37,7 @@ public interface IChapterRepository
     Task<IList<MangaFile>> GetFilesForChaptersAsync(IReadOnlyList<int> chapterIds);
     Task<string?> GetChapterCoverImageAsync(int chapterId);
     Task<IList<string>> GetAllCoverImagesAsync();
-    Task<IList<Chapter>> GetAllChaptersWithNonWebPCovers();
+    Task<IList<Chapter>> GetAllChaptersWithCoversInDifferentEncoding(EncodeFormat format);
     Task<IEnumerable<string>> GetCoverImagesForLockedChaptersAsync();
     Task<ChapterDto> AddChapterModifiers(int userId, ChapterDto chapter);
 }
@@ -208,10 +209,11 @@ public class ChapterRepository : IChapterRepository
             .ToListAsync())!;
     }
 
-    public async Task<IList<Chapter>> GetAllChaptersWithNonWebPCovers()
+    public async Task<IList<Chapter>> GetAllChaptersWithCoversInDifferentEncoding(EncodeFormat format)
     {
+        var extension = format.GetExtension();
         return await _context.Chapter
-            .Where(c => !string.IsNullOrEmpty(c.CoverImage)  && !c.CoverImage.EndsWith(".webp"))
+            .Where(c => !string.IsNullOrEmpty(c.CoverImage)  && !c.CoverImage.EndsWith(extension))
             .ToListAsync();
     }
 
@@ -251,11 +253,13 @@ public class ChapterRepository : IChapterRepository
         {
             chapter.PagesRead = progress.PagesRead ;
             chapter.LastReadingProgressUtc = progress.LastModifiedUtc;
+            chapter.LastReadingProgress = progress.LastModified;
         }
         else
         {
             chapter.PagesRead = 0;
             chapter.LastReadingProgressUtc = DateTime.MinValue;
+            chapter.LastReadingProgress = DateTime.MinValue;
         }
 
         return chapter;

@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using API.DTOs.Settings;
 using API.Entities;
 using API.Entities.Enums;
@@ -51,11 +52,8 @@ public class ServerSettingConverter : ITypeConverter<IEnumerable<ServerSetting>,
                 case ServerSettingKey.InstallVersion:
                     destination.InstallVersion = row.Value;
                     break;
-                case ServerSettingKey.ConvertBookmarkToWebP:
-                    destination.ConvertBookmarkToWebP = bool.Parse(row.Value);
-                    break;
-                case ServerSettingKey.ConvertCoverToWebP:
-                    destination.ConvertCoverToWebP = bool.Parse(row.Value);
+                case ServerSettingKey.EncodeMediaAs:
+                    destination.EncodeMediaAs = Enum.Parse<EncodeFormat>(row.Value);
                     break;
                 case ServerSettingKey.TotalBackups:
                     destination.TotalBackups = int.Parse(row.Value);
@@ -71,6 +69,18 @@ public class ServerSettingConverter : ITypeConverter<IEnumerable<ServerSetting>,
                     break;
                 case ServerSettingKey.HostName:
                     destination.HostName = row.Value;
+                    break;
+                case ServerSettingKey.CacheSize:
+                    destination.CacheSize = long.Parse(row.Value);
+                    break;
+                case ServerSettingKey.OnDeckProgressDays:
+                    destination.OnDeckProgressDays = int.Parse(row.Value);
+                    break;
+                case ServerSettingKey.OnDeckUpdateDays:
+                    destination.OnDeckUpdateDays = int.Parse(row.Value);
+                    break;
+                case ServerSettingKey.CoverImageSize:
+                    destination.CoverImageSize = Enum.Parse<CoverImageSize>(row.Value);
                     break;
             }
         }

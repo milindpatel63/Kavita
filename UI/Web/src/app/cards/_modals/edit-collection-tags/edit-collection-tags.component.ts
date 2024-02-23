@@ -1,8 +1,24 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnDestroy, OnInit } from '@angular/core';
-import { FormControl, FormGroup, Validators } from '@angular/forms';
-import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  DestroyRef,
+  inject,
+  Input,
+  OnInit
+} from '@angular/core';
+import {FormControl, FormGroup, FormsModule, ReactiveFormsModule, Validators} from '@angular/forms';
+import {
+  NgbActiveModal,
+  NgbNav,
+  NgbNavContent,
+  NgbNavItem,
+  NgbNavLink,
+  NgbNavOutlet,
+  NgbPagination, NgbTooltip
+} from '@ng-bootstrap/ng-bootstrap';
 import { ToastrService } from 'ngx-toastr';
-import { debounceTime, distinctUntilChanged, forkJoin, Subject, switchMap, takeUntil, tap } from 'rxjs';
+import { debounceTime, distinctUntilChanged, forkJoin, switchMap, tap } from 'rxjs';
 import { ConfirmService } from 'src/app/shared/confirm.service';
 import { Breakpoint, UtilityService } from 'src/app/shared/_services/utility.service';
 import { SelectionModel } from 'src/app/typeahead/_components/typeahead.component';
@@ -14,23 +30,29 @@ import { ImageService } from 'src/app/_services/image.service';
 import { LibraryService } from 'src/app/_services/library.service';
 import { SeriesService } from 'src/app/_services/series.service';
 import { UploadService } from 'src/app/_services/upload.service';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {CommonModule} from "@angular/common";
+import {CoverImageChooserComponent} from "../../cover-image-chooser/cover-image-chooser.component";
+import {TranslocoDirective, TranslocoService} from "@ngneat/transloco";
 
 
 enum TabID {
-  General = 'General',
-  CoverImage = 'Cover Image',
-  Series = 'Series'
+  General = 'general-tab',
+  CoverImage = 'cover-image-tab',
+  Series = 'series-tab'
 }
 
 @Component({
   selector: 'app-edit-collection-tags',
+  standalone: true,
+  imports: [CommonModule, NgbNav, NgbNavItem, NgbNavLink, NgbNavContent, ReactiveFormsModule, FormsModule, NgbPagination, CoverImageChooserComponent, NgbNavOutlet, NgbTooltip, TranslocoDirective],
   templateUrl: './edit-collection-tags.component.html',
   styleUrls: ['./edit-collection-tags.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class EditCollectionTagsComponent implements OnInit, OnDestroy {
+export class EditCollectionTagsComponent implements OnInit {
 
-  @Input() tag!: CollectionTag;
+  @Input({required: true}) tag!: CollectionTag;
   series: Array<Series> = [];
   selections!: SelectionModel<Series>;
   isLoading: boolean = true;
@@ -42,8 +64,8 @@ export class EditCollectionTagsComponent implements OnInit, OnDestroy {
   active = TabID.General;
   imageUrls: Array<string> = [];
   selectedCover: string = '';
-
-  private readonly onDestroy = new Subject<void>();
+  private readonly destroyRef = inject(DestroyRef);
+  translocoService = inject(TranslocoService);
 
   get hasSomeSelected() {
     return this.selections != null && this.selections.hasSomeSelected();
@@ -57,9 +79,9 @@ export class EditCollectionTagsComponent implements OnInit, OnDestroy {
     return TabID;
   }
 
-  constructor(public modal: NgbActiveModal, private seriesService: SeriesService, 
+  constructor(public modal: NgbActiveModal, private seriesService: SeriesService,
     private collectionService: CollectionTagService, private toastr: ToastrService,
-    private confirmSerivce: ConfirmService, private libraryService: LibraryService,
+    private confirmService: ConfirmService, private libraryService: LibraryService,
     private imageService: ImageService, private uploadService: UploadService,
     public utilityService: UtilityService, private readonly cdRef: ChangeDetectorRef) { }
 
@@ -76,7 +98,7 @@ export class EditCollectionTagsComponent implements OnInit, OnDestroy {
     });
 
     this.collectionTagForm.get('title')?.valueChanges.pipe(
-      debounceTime(100), 
+      debounceTime(100),
       distinctUntilChanged(),
       switchMap(name => this.collectionService.tagNameExists(name)),
       tap(exists => {
@@ -84,20 +106,15 @@ export class EditCollectionTagsComponent implements OnInit, OnDestroy {
         if (!exists || isExistingName) {
           this.collectionTagForm.get('title')?.setErrors(null);
         } else {
-          this.collectionTagForm.get('title')?.setErrors({duplicateName: true})  
+          this.collectionTagForm.get('title')?.setErrors({duplicateName: true})
         }
         this.cdRef.markForCheck();
       }),
-      takeUntil(this.onDestroy)
+      takeUntilDestroyed(this.destroyRef)
       ).subscribe();
 
     this.imageUrls.push(this.imageService.randomize(this.imageService.getCollectionCoverImage(this.tag.id)));
     this.loadSeries();
-  }
-
-  ngOnDestroy() {
-    this.onDestroy.next();
-    this.onDestroy.complete();
   }
 
   onPageChange(pageNum: number) {
@@ -153,8 +170,9 @@ export class EditCollectionTagsComponent implements OnInit, OnDestroy {
     const unselectedIds = this.selections.unselected().map(s => s.id);
     const tag = this.collectionTagForm.value;
     tag.id = this.tag.id;
-    
-    if (unselectedIds.length == this.series.length && !await this.confirmSerivce.confirm('Warning! No series are selected, saving will delete the tag. Are you sure you want to continue?')) {
+
+    if (unselectedIds.length == this.series.length &&
+      !await this.confirmService.confirm(this.translocoService.translate('toasts.no-series-collection-warning'))) {
       return;
     }
 
@@ -162,14 +180,14 @@ export class EditCollectionTagsComponent implements OnInit, OnDestroy {
       this.collectionService.updateTag(tag),
       this.collectionService.updateSeriesForTag(tag, this.selections.unselected().map(s => s.id))
     ];
-    
+
     if (selectedIndex > 0) {
       apis.push(this.uploadService.updateCollectionCoverImage(this.tag.id, this.selectedCover));
     }
-  
+
     forkJoin(apis).subscribe(() => {
       this.modal.close({success: true, coverImageUpdated: selectedIndex > 0});
-      this.toastr.success('Tag updated');
+      this.toastr.success(this.translocoService.translate('toasts.collection-updated'));
     });
   }
 

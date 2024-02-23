@@ -1,22 +1,33 @@
 import { DOCUMENT } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
-import { Inject, Injectable, OnDestroy, Renderer2, RendererFactory2, SecurityContext } from '@angular/core';
+import {
+  DestroyRef,
+  inject,
+  Inject,
+  Injectable,
+  Renderer2,
+  RendererFactory2,
+  SecurityContext
+} from '@angular/core';
 import { DomSanitizer } from '@angular/platform-browser';
 import { ToastrService } from 'ngx-toastr';
-import { map, ReplaySubject, Subject, takeUntil, take } from 'rxjs';
+import { map, ReplaySubject, take } from 'rxjs';
 import { environment } from 'src/environments/environment';
 import { ConfirmService } from '../shared/confirm.service';
 import { NotificationProgressEvent } from '../_models/events/notification-progress-event';
 import { SiteTheme, ThemeProvider } from '../_models/preferences/site-theme';
 import { TextResonse } from '../_types/text-response';
 import { EVENTS, MessageHubService } from './message-hub.service';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {translate} from "@ngneat/transloco";
 
 
 @Injectable({
   providedIn: 'root'
 })
-export class ThemeService implements OnDestroy {
+export class ThemeService {
 
+  private readonly destroyRef = inject(DestroyRef);
   public defaultTheme: string = 'dark';
   public defaultBookTheme: string = 'Dark';
 
@@ -25,24 +36,21 @@ export class ThemeService implements OnDestroy {
 
   private themesSource = new ReplaySubject<SiteTheme[]>(1);
   public themes$ = this.themesSource.asObservable();
-  
+
   /**
    * Maintain a cache of themes. SignalR will inform us if we need to refresh cache
    */
   private themeCache: Array<SiteTheme> = [];
 
-  private readonly onDestroy = new Subject<void>();
   private renderer: Renderer2;
   private baseUrl = environment.apiUrl;
 
 
   constructor(rendererFactory: RendererFactory2, @Inject(DOCUMENT) private document: Document, private httpClient: HttpClient,
-  messageHub: MessageHubService, private domSantizer: DomSanitizer, private confirmService: ConfirmService, private toastr: ToastrService) {
+  messageHub: MessageHubService, private domSanitizer: DomSanitizer, private confirmService: ConfirmService, private toastr: ToastrService) {
     this.renderer = rendererFactory.createRenderer(null, null);
 
-    this.getThemes();
-
-    messageHub.messages$.pipe(takeUntil(this.onDestroy)).subscribe(message => {
+    messageHub.messages$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(message => {
 
       if (message.event !== EVENTS.NotificationProgress) return;
       const notificationEvent = (message.payload as NotificationProgressEvent);
@@ -56,31 +64,26 @@ export class ThemeService implements OnDestroy {
     });
   }
 
-  ngOnDestroy(): void {
-    this.onDestroy.next();
-    this.onDestroy.complete();
-  }
-
   getColorScheme() {
     return getComputedStyle(this.document.body).getPropertyValue('--color-scheme').trim();
   }
-  
+
     /**
      * --theme-color from theme. Updates the meta tag
-     * @returns 
+     * @returns
      */
     getThemeColor() {
       return getComputedStyle(this.document.body).getPropertyValue('--theme-color').trim();
     }
-  
+
     /**
      * --msapplication-TileColor from theme. Updates the meta tag
-     * @returns 
+     * @returns
      */
     getTileColor() {
       return getComputedStyle(this.document.body).getPropertyValue('--title-color').trim();
     }
-  
+
   getCssVariable(variable: string) {
     return getComputedStyle(this.document.body).getPropertyValue(variable).trim();
   }
@@ -96,7 +99,7 @@ export class ThemeService implements OnDestroy {
       this.currentTheme$.pipe(take(1)).subscribe(theme => {
         if (themes.filter(t => t.id === theme.id).length === 0) {
           this.setTheme(this.defaultTheme);
-          this.toastr.info('The active theme no longer exists. Please refresh the page.');
+          this.toastr.info(translate('toasts.theme-missing'));
         }
       });
       return themes;
@@ -149,7 +152,7 @@ export class ThemeService implements OnDestroy {
         // We need to load the styles into the browser
         this.fetchThemeContent(theme.id).subscribe(async (content) => {
           if (content === null) {
-            await this.confirmService.alert('There is invalid or unsafe css in the theme. Please reach out to your admin to have this corrected. Defaulting to dark theme.');
+            await this.confirmService.alert(translate('toasts.alert-bad-theme'));
             this.setTheme('dark');
             return;
           }
@@ -167,12 +170,12 @@ export class ThemeService implements OnDestroy {
           }
 
           const tileColor = this.getTileColor();
-          if (themeColor) {
+          if (tileColor) {
             this.document.querySelector('meta[name="msapplication-TileColor"]')?.setAttribute('content', themeColor);
           }
 
           const colorScheme = this.getColorScheme();
-          if (themeColor) {
+          if (colorScheme) {
             this.document.querySelector('body')?.setAttribute('theme', colorScheme);
           }
 
@@ -196,7 +199,7 @@ export class ThemeService implements OnDestroy {
 
   private fetchThemeContent(themeId: number) {
     return this.httpClient.get<string>(this.baseUrl + 'theme/download-content?themeId=' + themeId, TextResonse).pipe(map(encodedCss => {
-      return this.domSantizer.sanitize(SecurityContext.STYLE, encodedCss);
+      return this.domSanitizer.sanitize(SecurityContext.STYLE, encodedCss);
     }));
   }
 

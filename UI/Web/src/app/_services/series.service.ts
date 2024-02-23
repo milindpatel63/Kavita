@@ -1,6 +1,6 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { Observable, of } from 'rxjs';
+import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { environment } from 'src/environments/environment';
 import { FilterUtilitiesService } from '../shared/_services/filter-utilities.service';
@@ -12,12 +12,15 @@ import { PaginatedResult } from '../_models/pagination';
 import { Series } from '../_models/series';
 import { RelatedSeries } from '../_models/series-detail/related-series';
 import { SeriesDetail } from '../_models/series-detail/series-detail';
-import { SeriesFilter } from '../_models/metadata/series-filter';
 import { SeriesGroup } from '../_models/series-group';
 import { SeriesMetadata } from '../_models/metadata/series-metadata';
 import { Volume } from '../_models/volume';
 import { ImageService } from './image.service';
 import { TextResonse } from '../_types/text-response';
+import { SeriesFilterV2 } from '../_models/metadata/v2/series-filter-v2';
+import {UserReview} from "../_single-module/review-card/user-review";
+import {Rating} from "../_models/rating";
+import {Recommendation} from "../_models/series-detail/recommendation";
 
 @Injectable({
   providedIn: 'root'
@@ -29,26 +32,26 @@ export class SeriesService {
   paginatedSeriesForTagsResults: PaginatedResult<Series[]> = new PaginatedResult<Series[]>();
 
   constructor(private httpClient: HttpClient, private imageService: ImageService,
-    private utilityService: UtilityService, private filterUtilitySerivce: FilterUtilitiesService) { }
+    private utilityService: UtilityService) { }
 
-  getAllSeries(pageNum?: number, itemsPerPage?: number, filter?: SeriesFilter) {
+  getAllSeriesV2(pageNum?: number, itemsPerPage?: number, filter?: SeriesFilterV2) {
     let params = new HttpParams();
     params = this.utilityService.addPaginationIfExists(params, pageNum, itemsPerPage);
-    const data = this.filterUtilitySerivce.createSeriesFilter(filter);
+    const data = filter || {};
 
-    return this.httpClient.post<PaginatedResult<Series[]>>(this.baseUrl + 'series/all', data, {observe: 'response', params}).pipe(
-      map((response: any) => {
-        return this.utilityService.createPaginatedResult(response, this.paginatedResults);
-      })
+    return this.httpClient.post<PaginatedResult<Series[]>>(this.baseUrl + 'series/all-v2', data, {observe: 'response', params}).pipe(
+        map((response: any) => {
+          return this.utilityService.createPaginatedResult(response, this.paginatedResults);
+        })
     );
   }
 
-  getSeriesForLibrary(libraryId: number, pageNum?: number, itemsPerPage?: number, filter?: SeriesFilter) {
+  getSeriesForLibraryV2(pageNum?: number, itemsPerPage?: number, filter?: SeriesFilterV2) {
     let params = new HttpParams();
     params = this.utilityService.addPaginationIfExists(params, pageNum, itemsPerPage);
-    const data = this.filterUtilitySerivce.createSeriesFilter(filter);
+    const data = filter || {};
 
-    return this.httpClient.post<PaginatedResult<Series[]>>(this.baseUrl + 'series?libraryId=' + libraryId, data, {observe: 'response', params}).pipe(
+    return this.httpClient.post<PaginatedResult<Series[]>>(this.baseUrl + 'series/v2', data, {observe: 'response', params}).pipe(
       map((response: any) => {
         return this.utilityService.createPaginatedResult(response, this.paginatedResults);
       })
@@ -83,8 +86,8 @@ export class SeriesService {
     return this.httpClient.post<boolean>(this.baseUrl + 'series/delete-multiple', {seriesIds});
   }
 
-  updateRating(seriesId: number, userRating: number, userReview: string) {
-    return this.httpClient.post(this.baseUrl + 'series/update-rating', {seriesId, userRating, userReview});
+  updateRating(seriesId: number, userRating: number) {
+    return this.httpClient.post(this.baseUrl + 'series/update-rating', {seriesId, userRating});
   }
 
   updateSeries(model: any) {
@@ -99,12 +102,12 @@ export class SeriesService {
     return this.httpClient.post<void>(this.baseUrl + 'reader/mark-unread', {seriesId});
   }
 
-  getRecentlyAdded(libraryId: number = 0, pageNum?: number, itemsPerPage?: number, filter?: SeriesFilter) {
-    const data = this.filterUtilitySerivce.createSeriesFilter(filter);
+  getRecentlyAdded(pageNum?: number, itemsPerPage?: number, filter?: SeriesFilterV2) {
     let params = new HttpParams();
     params = this.utilityService.addPaginationIfExists(params, pageNum, itemsPerPage);
 
-    return this.httpClient.post<Series[]>(this.baseUrl + 'series/recently-added?libraryId=' + libraryId, data, {observe: 'response', params}).pipe(
+    const data = filter || {};
+    return this.httpClient.post<Series[]>(this.baseUrl + 'series/recently-added-v2', data, {observe: 'response', params}).pipe(
       map(response => {
         return this.utilityService.createPaginatedResult(response, new PaginatedResult<Series[]>());
       })
@@ -115,13 +118,12 @@ export class SeriesService {
     return this.httpClient.post<SeriesGroup[]>(this.baseUrl + 'series/recently-updated-series', {});
   }
 
-  getWantToRead(pageNum?: number, itemsPerPage?: number, filter?: SeriesFilter): Observable<PaginatedResult<Series[]>> {
-    const data = this.filterUtilitySerivce.createSeriesFilter(filter);
-
+  getWantToRead(pageNum?: number, itemsPerPage?: number, filter?: SeriesFilterV2): Observable<PaginatedResult<Series[]>> {
     let params = new HttpParams();
     params = this.utilityService.addPaginationIfExists(params, pageNum, itemsPerPage);
+    const data = filter || {};
 
-    return this.httpClient.post<Series[]>(this.baseUrl + 'want-to-read/', data, {observe: 'response', params}).pipe(
+    return this.httpClient.post<Series[]>(this.baseUrl + 'want-to-read/v2', data, {observe: 'response', params}).pipe(
       map(response => {
         return this.utilityService.createPaginatedResult(response, new PaginatedResult<Series[]>());
     }));
@@ -134,11 +136,10 @@ export class SeriesService {
     }));
   }
 
-  getOnDeck(libraryId: number = 0, pageNum?: number, itemsPerPage?: number, filter?: SeriesFilter) {
-    const data = this.filterUtilitySerivce.createSeriesFilter(filter);
-
+  getOnDeck(libraryId: number = 0, pageNum?: number, itemsPerPage?: number, filter?: SeriesFilterV2) {
     let params = new HttpParams();
     params = this.utilityService.addPaginationIfExists(params, pageNum, itemsPerPage);
+    const data = filter || {};
 
     return this.httpClient.post<Series[]>(this.baseUrl + 'series/on-deck?libraryId=' + libraryId, data, {observe: 'response', params}).pipe(
       map(response => {
@@ -190,6 +191,10 @@ export class SeriesService {
     return this.httpClient.get<RelatedSeries>(this.baseUrl + 'series/all-related?seriesId=' + seriesId);
   }
 
+  getRecommendationsForSeries(seriesId: number) {
+    return this.httpClient.get<Recommendation>(this.baseUrl + 'recommended/recommendations?seriesId=' + seriesId);
+  }
+
   updateRelationships(seriesId: number, adaptations: Array<number>, characters: Array<number>,
     contains: Array<number>, others: Array<number>, prequels: Array<number>,
     sequels: Array<number>, sideStories: Array<number>, spinOffs: Array<number>,
@@ -201,5 +206,26 @@ export class SeriesService {
 
   getSeriesDetail(seriesId: number) {
     return this.httpClient.get<SeriesDetail>(this.baseUrl + 'series/series-detail?seriesId=' + seriesId);
+  }
+
+  getReviews(seriesId: number) {
+    return this.httpClient.get<Array<UserReview>>(this.baseUrl + 'review?seriesId=' + seriesId);
+  }
+
+  updateReview(seriesId: number, tagline: string, body: string) {
+    return this.httpClient.post<UserReview>(this.baseUrl + 'review', {
+      seriesId, tagline, body
+    });
+  }
+
+  getRatings(seriesId: number) {
+    return this.httpClient.get<Array<Rating>>(this.baseUrl + 'rating?seriesId=' + seriesId);
+  }
+  getOverallRating(seriesId: number) {
+    return this.httpClient.get<Rating>(this.baseUrl + 'rating/overall?seriesId=' + seriesId);
+  }
+
+  removeFromOnDeck(seriesId: number) {
+    return this.httpClient.post(this.baseUrl + 'series/remove-from-on-deck?seriesId=' + seriesId, {});
   }
 }

@@ -1,69 +1,91 @@
-import { Component, ElementRef, Input, OnDestroy, OnInit, ViewChild } from '@angular/core';
-import { ToastrService } from 'ngx-toastr';
-import { Subject } from 'rxjs';
-import { take, takeUntil } from 'rxjs/operators';
-import { ConfirmService } from 'src/app/shared/confirm.service';
-import { AccountService } from 'src/app/_services/account.service';
-import { Clipboard } from '@angular/cdk/clipboard';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component, DestroyRef,
+  ElementRef, inject,
+  Input,
+  OnInit,
+  ViewChild
+} from '@angular/core';
+import {ToastrService} from 'ngx-toastr';
+import {ConfirmService} from 'src/app/shared/confirm.service';
+import {AccountService} from 'src/app/_services/account.service';
+import {Clipboard} from '@angular/cdk/clipboard';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import { NgbTooltip } from '@ng-bootstrap/ng-bootstrap';
+import { NgIf } from '@angular/common';
+import {translate, TranslocoDirective} from "@ngneat/transloco";
 
 @Component({
-  selector: 'app-api-key',
-  templateUrl: './api-key.component.html',
-  styleUrls: ['./api-key.component.scss']
+    selector: 'app-api-key',
+    templateUrl: './api-key.component.html',
+    styleUrls: ['./api-key.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: true,
+    imports: [NgIf, NgbTooltip, TranslocoDirective]
 })
-export class ApiKeyComponent implements OnInit, OnDestroy {
+export class ApiKeyComponent implements OnInit {
 
   @Input() title: string = 'API Key';
   @Input() showRefresh: boolean = true;
   @Input() transform: (val: string) => string = (val: string) => val;
   @Input() tooltipText: string = '';
+  @Input() hideData = true;
   @ViewChild('apiKey') inputElem!: ElementRef;
   key: string = '';
-  private readonly onDestroy = new Subject<void>();
-  
+  private readonly destroyRef = inject(DestroyRef);
 
-  constructor(private confirmService: ConfirmService, private accountService: AccountService, private toastr: ToastrService, private clipboard: Clipboard) { }
+  get InputType() {
+    return this.hideData ? 'password' : 'text';
+  }
+
+  constructor(private confirmService: ConfirmService, private accountService: AccountService, private toastr: ToastrService, private clipboard: Clipboard,
+              private readonly cdRef: ChangeDetectorRef) { }
 
   ngOnInit(): void {
-    this.accountService.currentUser$.pipe(takeUntil(this.onDestroy)).subscribe(user => {
+    this.accountService.currentUser$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(user => {
       let key = '';
       if (user) {
         key = user.apiKey;
       } else {
-        key = 'ERROR - KEY NOT SET';
+        key = translate('api-key.no-key');
       }
 
       if (this.transform != undefined) {
         this.key = this.transform(key);
+        this.cdRef.markForCheck();
       }
     });
-  }
-
-  ngOnDestroy() {
-    this.onDestroy.next();
-    this.onDestroy.complete();
   }
 
   async copy() {
     this.inputElem.nativeElement.select();
     this.clipboard.copy(this.inputElem.nativeElement.value);
     this.inputElem.nativeElement.setSelectionRange(0, 0);
+    this.cdRef.markForCheck();
   }
 
   async refresh() {
-    if (!await this.confirmService.confirm('This will invalidate any OPDS configurations you have setup. Are you sure you want to continue?')) {
+    if (!await this.confirmService.confirm(translate('api-key.confirm-reset'))) {
       return;
     }
     this.accountService.resetApiKey().subscribe(newKey => {
       this.key = newKey;
-      this.toastr.success('API Key reset');
+      this.cdRef.markForCheck();
+      this.toastr.success(translate('api-key.key-reset'));
     });
   }
 
   selectAll() {
     if (this.inputElem) {
       this.inputElem.nativeElement.setSelectionRange(0, this.key.length);
+      this.cdRef.markForCheck();
     }
+  }
+
+  show() {
+    this.inputElem.nativeElement.setAttribute('type', 'text');
+    this.cdRef.markForCheck();
   }
 
 }

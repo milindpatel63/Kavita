@@ -1,3 +1,6 @@
+import { EncodeFormat } from "./encode-format";
+import {CoverImageSize} from "./cover-image-size";
+
 export interface ServerSettings {
     cacheDirectory: string;
     taskScan: string;
@@ -10,10 +13,13 @@ export interface ServerSettings {
     baseUrl: string;
     bookmarksDirectory: string;
     emailServiceUrl: string;
-    convertBookmarkToWebP: boolean;
-    convertCoverToWebP: boolean;
+    encodeMediaAs: EncodeFormat;
     totalBackups: number;
     totalLogs: number;
     enableFolderWatching: boolean;
     hostName: string;
+    cacheSize: number;
+    onDeckProgressDays: number;
+    onDeckUpdateDays: number;
+    coverImageSize: CoverImageSize;
 }

@@ -3,9 +3,17 @@ import { UtilityService } from 'src/app/shared/_services/utility.service';
 import { Chapter } from 'src/app/_models/chapter';
 import { LibraryType } from 'src/app/_models/library';
 import { Volume } from 'src/app/_models/volume';
+import {CommonModule, NgSwitch} from "@angular/common";
+import {TranslocoModule} from "@ngneat/transloco";
 
 @Component({
   selector: 'app-entity-title',
+  standalone: true,
+  imports: [
+    CommonModule,
+    NgSwitch,
+    TranslocoModule
+  ],
   templateUrl: './entity-title.component.html',
   styleUrls: ['./entity-title.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -17,13 +25,13 @@ export class EntityTitleComponent implements OnInit {
    */
   @Input() libraryType: LibraryType = LibraryType.Manga;
   @Input() seriesName: string = '';
-  @Input() entity!: Volume | Chapter;
+  @Input({required: true}) entity!: Volume | Chapter;
   /**
    * When generating the title, should this prepend 'Volume number' before the Chapter wording
    */
   @Input() includeVolume: boolean = false;
   /**
-   * When a titleName (aka a title) is avaliable on the entity, show it over Volume X Chapter Y
+   * When a titleName (aka a title) is available on the entity, show it over Volume X Chapter Y
    */
   @Input() prioritizeTitleName: boolean = true;
 

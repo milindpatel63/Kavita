@@ -11,10 +11,9 @@ public static class Parser
 {
     public const string DefaultChapter = "0";
     public const string DefaultVolume = "0";
-    private const int RegexTimeoutMs = 5000000; // 500 ms
     public static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(500);
 
-    public const string ImageFileExtensions = @"^(\.png|\.jpeg|\.jpg|\.webp|\.gif)";
+    public const string ImageFileExtensions = @"^(\.png|\.jpeg|\.jpg|\.webp|\.gif|\.avif)";
     public const string ArchiveFileExtensions = @"\.cbz|\.zip|\.rar|\.cbr|\.tar.gz|\.7zip|\.7z|\.cb7|\.cbt";
     private const string BookFileExtensions = @"\.epub|\.pdf";
     private const string XmlRegexExtensions = @"\.xml";
@@ -321,13 +320,9 @@ public static class Parser
         new Regex(
             @"(?<Series>.*)( ?- ?)Ch\.\d+-?\d*",
             MatchOptions, RegexTimeout),
-        // [BAA]_Darker_than_Black_Omake-1.zip
+        // [BAA]_Darker_than_Black_Omake-1, Bleach 001-002, Kodoja #001 (March 2016)
         new Regex(
-            @"^(?!Vol)(?<Series>.*)(-)\d+-?\d*", // This catches a lot of stuff ^(?!Vol)(?<Series>.*)( |_)(\d+)
-            MatchOptions, RegexTimeout),
-        // Kodoja #001 (March 2016)
-        new Regex(
-            @"(?<Series>.*)(\s|_|-)#",
+            @"^(?!Vol)(?!Chapter)(?<Series>.+?)(-|_|\s|#)\d+(-\d+)?",
             MatchOptions, RegexTimeout),
         // Baketeriya ch01-05.zip, Akiiro Bousou Biyori - 01.jpg, Beelzebub_172_RHS.zip, Cynthia the Mission 29.rar, A Compendium of Ghosts - 031 - The Third Story_ Part 12 (Digital) (Cobalt001)
         new Regex(
@@ -1000,7 +995,9 @@ public static class Parser
     /// <returns></returns>
     public static bool HasBlacklistedFolderInPath(string path)
     {
-        return path.Contains("__MACOSX") || path.StartsWith("@Recently-Snapshot") || path.StartsWith("@recycle") || path.StartsWith("._") || Path.GetFileName(path).StartsWith("._") || path.Contains(".qpkg");
+        return path.Contains("__MACOSX") || path.StartsWith("@Recently-Snapshot") || path.StartsWith("@recycle")
+               || path.StartsWith("._") || Path.GetFileName(path).StartsWith("._") || path.Contains(".qpkg")
+               || path.Contains(".caltrash");
     }
 
 
@@ -1061,5 +1058,20 @@ public static class Parser
     private static string ReplaceUnderscores(string name)
     {
         return string.IsNullOrEmpty(name) ? string.Empty : name.Replace('_', ' ');
+    }
+
+    public static string? ExtractFilename(string fileUrl)
+    {
+        var matches = Parser.CssImageUrlRegex.Matches(fileUrl);
+        foreach (Match match in matches)
+        {
+            if (!match.Success) continue;
+
+            // NOTE: This is failing for //localhost:5000/api/book/29919/book-resources?file=OPS/images/tick1.jpg
+            var importFile = match.Groups["Filename"].Value;
+            if (!importFile.Contains("?")) return importFile;
+        }
+
+        return null;
     }
 }

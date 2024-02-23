@@ -1,29 +1,42 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnDestroy, OnInit } from '@angular/core';
-import { Title } from '@angular/platform-browser';
-import { Router } from '@angular/router';
-import { Observable, of, ReplaySubject, Subject } from 'rxjs';
-import { debounceTime, map, take, takeUntil, tap, shareReplay } from 'rxjs/operators';
-import { FilterQueryParam } from 'src/app/shared/_services/filter-utilities.service';
-import { SeriesAddedEvent } from 'src/app/_models/events/series-added-event';
-import { SeriesRemovedEvent } from 'src/app/_models/events/series-removed-event';
-import { Library } from 'src/app/_models/library';
-import { RecentlyAddedItem } from 'src/app/_models/recently-added-item';
-import { Series } from 'src/app/_models/series';
-import { SortField } from 'src/app/_models/metadata/series-filter';
-import { SeriesGroup } from 'src/app/_models/series-group';
-import { AccountService } from 'src/app/_services/account.service';
-import { ImageService } from 'src/app/_services/image.service';
-import { LibraryService } from 'src/app/_services/library.service';
-import { MessageHubService, EVENTS } from 'src/app/_services/message-hub.service';
-import { SeriesService } from 'src/app/_services/series.service';
+import {ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, inject, Input, OnInit} from '@angular/core';
+import {Title} from '@angular/platform-browser';
+import {Router, RouterLink} from '@angular/router';
+import {Observable, of, ReplaySubject} from 'rxjs';
+import {debounceTime, map, shareReplay, take, tap} from 'rxjs/operators';
+import {FilterUtilitiesService} from 'src/app/shared/_services/filter-utilities.service';
+import {SeriesAddedEvent} from 'src/app/_models/events/series-added-event';
+import {SeriesRemovedEvent} from 'src/app/_models/events/series-removed-event';
+import {Library} from 'src/app/_models/library';
+import {RecentlyAddedItem} from 'src/app/_models/recently-added-item';
+import {Series} from 'src/app/_models/series';
+import {SortField} from 'src/app/_models/metadata/series-filter';
+import {SeriesGroup} from 'src/app/_models/series-group';
+import {AccountService} from 'src/app/_services/account.service';
+import {ImageService} from 'src/app/_services/image.service';
+import {LibraryService} from 'src/app/_services/library.service';
+import {EVENTS, MessageHubService} from 'src/app/_services/message-hub.service';
+import {SeriesService} from 'src/app/_services/series.service';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {CardItemComponent} from '../../cards/card-item/card-item.component';
+import {SeriesCardComponent} from '../../cards/series-card/series-card.component';
+import {CarouselReelComponent} from '../../carousel/_components/carousel-reel/carousel-reel.component';
+import {AsyncPipe, NgIf} from '@angular/common';
+import {
+  SideNavCompanionBarComponent
+} from '../../sidenav/_components/side-nav-companion-bar/side-nav-companion-bar.component';
+import {TranslocoDirective} from "@ngneat/transloco";
+import {FilterField} from "../../_models/metadata/v2/filter-field";
+import {FilterComparison} from "../../_models/metadata/v2/filter-comparison";
 
 @Component({
-  selector: 'app-dashboard',
-  templateUrl: './dashboard.component.html',
-  styleUrls: ['./dashboard.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'app-dashboard',
+    templateUrl: './dashboard.component.html',
+    styleUrls: ['./dashboard.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: true,
+  imports: [SideNavCompanionBarComponent, NgIf, RouterLink, CarouselReelComponent, SeriesCardComponent, CardItemComponent, AsyncPipe, TranslocoDirective]
 })
-export class DashboardComponent implements OnInit, OnDestroy {
+export class DashboardComponent implements OnInit {
 
   /**
    * By default, 0, but if non-zero, will limit all API calls to library id
@@ -32,36 +45,38 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   libraries$: Observable<Library[]> = of([]);
   isLoading = true;
-  
+
   isAdmin$: Observable<boolean> = of(false);
 
   recentlyUpdatedSeries: SeriesGroup[] = [];
   inProgress: Series[] = [];
   recentlyAddedSeries: Series[] = [];
 
-  private readonly onDestroy = new Subject<void>();
-
   /**
    * We use this Replay subject to slow the amount of times we reload the UI
    */
   private loadRecentlyAdded$: ReplaySubject<void> = new ReplaySubject<void>();
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly filterUtilityService = inject(FilterUtilitiesService);
 
-  constructor(public accountService: AccountService, private libraryService: LibraryService, 
-    private seriesService: SeriesService, private router: Router, 
-    private titleService: Title, public imageService: ImageService, 
+  constructor(public accountService: AccountService, private libraryService: LibraryService,
+    private seriesService: SeriesService, private router: Router,
+    private titleService: Title, public imageService: ImageService,
     private messageHub: MessageHubService, private readonly cdRef: ChangeDetectorRef) {
 
-      this.messageHub.messages$.pipe(takeUntil(this.onDestroy)).subscribe(res => {
+      this.messageHub.messages$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(res => {
         if (res.event === EVENTS.SeriesAdded) {
           const seriesAddedEvent = res.payload as SeriesAddedEvent;
 
+
           this.seriesService.getSeries(seriesAddedEvent.seriesId).subscribe(series => {
-            this.recentlyAddedSeries.unshift(series);
-            this.cdRef.detectChanges();
+            if (this.recentlyAddedSeries.filter(s => s.id === series.id).length > 0) return;
+            this.recentlyAddedSeries = [series, ...this.recentlyAddedSeries];
+            this.cdRef.markForCheck();
           });
         } else if (res.event === EVENTS.SeriesRemoved) {
           const seriesRemovedEvent = res.payload as SeriesRemovedEvent;
-          
+
           this.inProgress = this.inProgress.filter(item => item.id != seriesRemovedEvent.seriesId);
           this.recentlyAddedSeries = this.recentlyAddedSeries.filter(item => item.id != seriesRemovedEvent.seriesId);
           this.recentlyUpdatedSeries = this.recentlyUpdatedSeries.filter(item => item.seriesId != seriesRemovedEvent.seriesId);
@@ -73,12 +88,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
       });
 
       this.isAdmin$ = this.accountService.currentUser$.pipe(
-        takeUntil(this.onDestroy), 
-        map(user => (user && this.accountService.hasAdminRole(user)) || false), 
+        takeUntilDestroyed(this.destroyRef),
+        map(user => (user && this.accountService.hasAdminRole(user)) || false),
         shareReplay()
       );
 
-      this.loadRecentlyAdded$.pipe(debounceTime(1000), takeUntil(this.onDestroy)).subscribe(() => {
+      this.loadRecentlyAdded$.pipe(debounceTime(1000), takeUntilDestroyed(this.destroyRef)).subscribe(() => {
         this.loadRecentlyUpdated();
         this.loadRecentlyAddedSeries();
         this.cdRef.markForCheck();
@@ -90,17 +105,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.isLoading = true;
     this.cdRef.markForCheck();
 
-    this.libraries$ = this.libraryService.getLibraries().pipe(take(1), tap((libs) => {
+    this.libraries$ = this.libraryService.getLibraries().pipe(take(1), takeUntilDestroyed(this.destroyRef), tap((libs) => {
       this.isLoading = false;
       this.cdRef.markForCheck();
     }));
 
     this.reloadSeries();
-  }
-
-  ngOnDestroy() {
-    this.onDestroy.next();
-    this.onDestroy.complete();
   }
 
   reloadSeries() {
@@ -109,16 +119,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.loadRecentlyAddedSeries();
   }
 
-  reloadInProgress(series: Series | boolean) {
-    if (series === true || series === false) {
-      if (!series) {return;}
-    }
-    // If the update to Series doesn't affect the requirement to be in this stream, then ignore update request
-    const seriesObj = (series as Series);
-    if (seriesObj.pagesRead !== seriesObj.pages && seriesObj.pagesRead !== 0) {
-      return;
-    }
-
+  reloadInProgress(series: Series | number) {
     this.loadOnDeck();
   }
 
@@ -127,18 +128,20 @@ export class DashboardComponent implements OnInit, OnDestroy {
     if (this.libraryId > 0) {
       api = this.seriesService.getOnDeck(this.libraryId, 1, 30);
     }
-    api.pipe(takeUntil(this.onDestroy)).subscribe((updatedSeries) => {
+    api.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((updatedSeries) => {
       this.inProgress = updatedSeries.result;
       this.cdRef.markForCheck();
     });
   }
 
   loadRecentlyAddedSeries() {
-    let api = this.seriesService.getRecentlyAdded(0, 1, 30);
+    let api = this.seriesService.getRecentlyAdded(1, 30);
     if (this.libraryId > 0) {
-      api = this.seriesService.getRecentlyAdded(this.libraryId, 1, 30);
+      const filter = this.filterUtilityService.createSeriesV2Filter();
+      filter.statements.push({field: FilterField.Libraries, value: this.libraryId + '', comparison: FilterComparison.Equal});
+      api = this.seriesService.getRecentlyAdded(1, 30, filter);
     }
-    api.pipe(takeUntil(this.onDestroy)).subscribe((updatedSeries) => {
+    api.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((updatedSeries) => {
       this.recentlyAddedSeries = updatedSeries.result;
       this.cdRef.markForCheck();
     });
@@ -150,7 +153,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     if (this.libraryId > 0) {
       api = this.seriesService.getRecentlyUpdatedSeries();
     }
-    api.pipe(takeUntil(this.onDestroy)).subscribe(updatedSeries => {
+    api.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(updatedSeries => {
       this.recentlyUpdatedSeries = updatedSeries.filter(group => {
         if (this.libraryId === 0) return true;
         return group.libraryId === this.libraryId;
@@ -166,24 +169,38 @@ export class DashboardComponent implements OnInit, OnDestroy {
   handleSectionClick(sectionTitle: string) {
     if (sectionTitle.toLowerCase() === 'recently updated series') {
       const params: any = {};
-      params[FilterQueryParam.SortBy] = SortField.LastChapterAdded + ',false'; // sort by last chapter added, desc
-      params[FilterQueryParam.Page] = 1;
+      params['page'] = 1;
       params['title'] = 'Recently Updated';
-      this.router.navigate(['all-series'], {queryParams: params});
+      const filter = this.filterUtilityService.createSeriesV2Filter();
+      if (filter.sortOptions) {
+        filter.sortOptions.sortField = SortField.LastChapterAdded;
+        filter.sortOptions.isAscending = false;
+      }
+      this.filterUtilityService.applyFilterWithParams(['all-series'], filter, params)
     } else if (sectionTitle.toLowerCase() === 'on deck') {
       const params: any = {};
-      params[FilterQueryParam.ReadStatus] = 'true,false,false';
-      params[FilterQueryParam.SortBy] = SortField.LastChapterAdded + ',false'; // sort by last chapter added, desc
-      params[FilterQueryParam.Page] = 1;
+      params['page'] = 1;
       params['title'] = 'On Deck';
-      this.router.navigate(['all-series'], {queryParams: params});
+
+      const filter = this.filterUtilityService.createSeriesV2Filter();
+      filter.statements.push({field: FilterField.ReadProgress, comparison: FilterComparison.GreaterThan, value: '0'});
+      filter.statements.push({field: FilterField.ReadProgress, comparison: FilterComparison.LessThan, value: '100'});
+      if (filter.sortOptions) {
+        filter.sortOptions.sortField = SortField.LastChapterAdded;
+        filter.sortOptions.isAscending = false;
+      }
+      this.filterUtilityService.applyFilterWithParams(['all-series'], filter, params)
     }else if (sectionTitle.toLowerCase() === 'newly added series') {
       const params: any = {};
-      params[FilterQueryParam.SortBy] = SortField.Created + ',false'; // sort by created, desc
-      params[FilterQueryParam.Page] = 1;
+      params['page'] = 1;
       params['title'] = 'Newly Added';
-      this.router.navigate(['all-series'], {queryParams: params});
-    } 
+      const filter = this.filterUtilityService.createSeriesV2Filter();
+      if (filter.sortOptions) {
+        filter.sortOptions.sortField = SortField.Created;
+        filter.sortOptions.isAscending = false;
+      }
+      this.filterUtilityService.applyFilterWithParams(['all-series'], filter, params)
+    }
   }
 
   removeFromArray(arr: Array<any>, element: any) {

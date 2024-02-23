@@ -7,6 +7,7 @@ using API.Data.Misc;
 using API.Data.Repositories;
 using API.Entities;
 using API.Entities.Enums;
+using API.Entities.Scrobble;
 using Microsoft.EntityFrameworkCore;
 
 namespace API.Extensions.QueryExtensions;
@@ -81,6 +82,25 @@ public static class QueryableExtensions
             .Select(lib => lib.Id);
     }
 
+    /// <summary>
+    /// Returns all libraries for a given user and library type
+    /// </summary>
+    /// <param name="library"></param>
+    /// <param name="userId"></param>
+    /// <param name="queryContext"></param>
+    /// <returns></returns>
+    public static IQueryable<int> GetUserLibrariesByType(this IQueryable<Library> library, int userId, LibraryType type, QueryContext queryContext = QueryContext.None)
+    {
+        return library
+            .Include(l => l.AppUsers)
+            .Where(lib => lib.AppUsers.Any(user => user.Id == userId))
+            .Where(lib => lib.Type == type)
+            .IsRestricted(queryContext)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .Select(lib => lib.Id);
+    }
+
     public static IEnumerable<DateTime> Range(this DateTime startDate, int numberOfDays) =>
         Enumerable.Range(0, numberOfDays).Select(e => startDate.AddDays(e));
 
@@ -88,5 +108,82 @@ public static class QueryableExtensions
         Expression<Func<T, bool>> predicate)
     {
         return condition ? queryable.Where(predicate) : queryable;
+    }
+
+    public static IQueryable<T> WhereLike<T>(this IQueryable<T> queryable, bool condition, Expression<Func<T, string>> propertySelector, string searchQuery)
+        where T : class
+    {
+        if (!condition || string.IsNullOrEmpty(searchQuery)) return queryable;
+
+        var method = typeof(DbFunctionsExtensions).GetMethod(nameof(DbFunctionsExtensions.Like), new[] { typeof(DbFunctions), typeof(string), typeof(string) });
+        var dbFunctions = typeof(EF).GetMethod(nameof(EF.Functions))?.Invoke(null, null);
+        var searchExpression = Expression.Constant($"%{searchQuery}%");
+        var likeExpression = Expression.Call(method, Expression.Constant(dbFunctions), propertySelector.Body, searchExpression);
+        var lambda = Expression.Lambda<Func<T, bool>>(likeExpression, propertySelector.Parameters[0]);
+
+        return queryable.Where(lambda);
+    }
+
+    /// <summary>
+    /// Performs a WhereLike that ORs multiple fields
+    /// </summary>
+    /// <param name="queryable"></param>
+    /// <param name="propertySelectors"></param>
+    /// <param name="searchQuery"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    /// <exception cref="ArgumentNullException"></exception>
+    public static IQueryable<T> WhereLike<T>(this IQueryable<T> queryable, bool condition, List<Expression<Func<T, string>>> propertySelectors, string searchQuery)
+        where T : class
+    {
+        if (!condition || string.IsNullOrEmpty(searchQuery)) return queryable;
+
+        var method = typeof(DbFunctionsExtensions).GetMethod(nameof(DbFunctionsExtensions.Like), new[] { typeof(DbFunctions), typeof(string), typeof(string) });
+        var dbFunctions = typeof(EF).GetMethod(nameof(EF.Functions))?.Invoke(null, null);
+        var searchExpression = Expression.Constant($"%{searchQuery}%");
+
+        Expression orExpression = null;
+        foreach (var propertySelector in propertySelectors)
+        {
+            var likeExpression = Expression.Call(method, Expression.Constant(dbFunctions), propertySelector.Body, searchExpression);
+            var lambda = Expression.Lambda<Func<T, bool>>(likeExpression, propertySelector.Parameters[0]);
+            orExpression = orExpression == null ? lambda.Body : Expression.OrElse(orExpression, lambda.Body);
+        }
+
+        if (orExpression == null)
+        {
+            throw new ArgumentNullException(nameof(orExpression));
+        }
+
+        var combinedLambda = Expression.Lambda<Func<T, bool>>(orExpression, propertySelectors[0].Parameters[0]);
+        return queryable.Where(combinedLambda);
+    }
+
+    public static IQueryable<ScrobbleEvent> SortBy(this IQueryable<ScrobbleEvent> query, ScrobbleEventSortField sort, bool isDesc = false)
+    {
+        if (isDesc)
+        {
+            return sort switch
+            {
+                ScrobbleEventSortField.None => query,
+                ScrobbleEventSortField.Created => query.OrderByDescending(s => s.Created),
+                ScrobbleEventSortField.LastModified => query.OrderByDescending(s => s.LastModified),
+                ScrobbleEventSortField.Type => query.OrderByDescending(s => s.ScrobbleEventType),
+                ScrobbleEventSortField.Series => query.OrderByDescending(s => s.Series.NormalizedName),
+                ScrobbleEventSortField.IsProcessed => query.OrderByDescending(s => s.IsProcessed),
+                _ => query
+            };
+        }
+
+        return sort switch
+        {
+            ScrobbleEventSortField.None => query,
+            ScrobbleEventSortField.Created => query.OrderBy(s => s.Created),
+            ScrobbleEventSortField.LastModified => query.OrderBy(s => s.LastModified),
+            ScrobbleEventSortField.Type => query.OrderBy(s => s.ScrobbleEventType),
+            ScrobbleEventSortField.Series => query.OrderBy(s => s.Series.NormalizedName),
+            ScrobbleEventSortField.IsProcessed => query.OrderBy(s => s.IsProcessed),
+            _ => query
+        };
     }
 }

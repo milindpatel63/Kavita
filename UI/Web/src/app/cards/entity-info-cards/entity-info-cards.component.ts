@@ -1,5 +1,11 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnDestroy, OnInit } from '@angular/core';
-import { Subject } from 'rxjs';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  Input,
+  OnInit,
+  inject,
+} from '@angular/core';
 import { UtilityService } from 'src/app/shared/_services/utility.service';
 import { Chapter } from 'src/app/_models/chapter';
 import { ChapterMetadata } from 'src/app/_models/metadata/chapter-metadata';
@@ -9,18 +15,34 @@ import { MangaFormat } from 'src/app/_models/manga-format';
 import { AgeRating } from 'src/app/_models/metadata/age-rating';
 import { Volume } from 'src/app/_models/volume';
 import { SeriesService } from 'src/app/_services/series.service';
+import { ImageService } from 'src/app/_services/image.service';
+import {CommonModule} from "@angular/common";
+import {IconAndTitleComponent} from "../../shared/icon-and-title/icon-and-title.component";
+import {SafeHtmlPipe} from "../../pipe/safe-html.pipe";
+import {DefaultDatePipe} from "../../pipe/default-date.pipe";
+import {BytesPipe} from "../../pipe/bytes.pipe";
+import {CompactNumberPipe} from "../../pipe/compact-number.pipe";
+import {AgeRatingPipe} from "../../pipe/age-rating.pipe";
+import {NgbTooltip} from "@ng-bootstrap/ng-bootstrap";
+import {MetadataDetailComponent} from "../../series-detail/_components/metadata-detail/metadata-detail.component";
+import {TranslocoModule} from "@ngneat/transloco";
+import {TranslocoLocaleModule} from "@ngneat/transloco-locale";
+import {FilterField} from "../../_models/metadata/v2/filter-field";
 
 @Component({
   selector: 'app-entity-info-cards',
+  standalone: true,
+    imports: [CommonModule, IconAndTitleComponent, SafeHtmlPipe, DefaultDatePipe, BytesPipe, CompactNumberPipe, AgeRatingPipe, NgbTooltip, MetadataDetailComponent, TranslocoModule, CompactNumberPipe, TranslocoLocaleModule],
   templateUrl: './entity-info-cards.component.html',
   styleUrls: ['./entity-info-cards.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class EntityInfoCardsComponent implements OnInit, OnDestroy {
+export class EntityInfoCardsComponent implements OnInit {
 
-  @Input() entity!: Volume | Chapter;
+  @Input({required: true}) entity!: Volume | Chapter;
+  @Input({required: true}) libraryId!: number;
   /**
-   * This will pull extra information 
+   * This will pull extra information
    */
   @Input() includeMetadata: boolean = false;
 
@@ -39,7 +61,7 @@ export class EntityInfoCardsComponent implements OnInit, OnDestroy {
   readingTime: HourEstimateRange = {maxHours: 1, minHours: 1, avgHours: 1};
   size: number = 0;
 
-  private readonly onDestroy: Subject<void> = new Subject();
+  imageService = inject(ImageService);
 
   get LibraryType() {
     return LibraryType;
@@ -51,6 +73,13 @@ export class EntityInfoCardsComponent implements OnInit, OnDestroy {
 
   get AgeRating() {
     return AgeRating;
+  }
+
+  get FilterField() { return FilterField; }
+
+  get WebLinks() {
+    if (this.chapter.webLinks === '') return [];
+    return this.chapter.webLinks.split(',');
   }
 
   constructor(private utilityService: UtilityService, private seriesService: SeriesService, private readonly cdRef: ChangeDetectorRef) {}
@@ -77,19 +106,19 @@ export class EntityInfoCardsComponent implements OnInit, OnDestroy {
         this.cdRef.markForCheck();
       });
     }
-    
+
     this.totalPages = this.chapter.pages;
     if (!this.isChapter) {
       this.totalPages = this.utilityService.asVolume(this.entity).pages;
     }
-      
+
     this.totalWordCount = this.chapter.wordCount;
     if (!this.isChapter) {
       this.totalWordCount = this.utilityService.asVolume(this.entity).chapters.map(c => c.wordCount).reduce((sum, d) => sum + d);
     }
 
-      
-        
+
+
     if (this.isChapter) {
       this.readingTime.minHours = this.chapter.minHoursToRead;
       this.readingTime.maxHours = this.chapter.maxHoursToRead;
@@ -101,10 +130,5 @@ export class EntityInfoCardsComponent implements OnInit, OnDestroy {
       this.readingTime.avgHours = vol.avgHoursToRead;
     }
     this.cdRef.markForCheck();
-  }
-
-  ngOnDestroy(): void {
-    this.onDestroy.next();
-    this.onDestroy.complete();
   }
 }

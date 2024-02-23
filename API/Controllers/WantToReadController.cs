@@ -1,12 +1,17 @@
-﻿using System.Linq;
+﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using API.Data;
 using API.Data.Repositories;
 using API.DTOs;
 using API.DTOs.Filtering;
+using API.DTOs.Filtering.v2;
 using API.DTOs.WantToRead;
 using API.Extensions;
 using API.Helpers;
+using API.Services;
+using API.Services.Plus;
+using Hangfire;
 using Microsoft.AspNetCore.Mvc;
 
 namespace API.Controllers;
@@ -18,10 +23,34 @@ namespace API.Controllers;
 public class WantToReadController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IScrobblingService _scrobblingService;
+    private readonly ILocalizationService _localizationService;
 
-    public WantToReadController(IUnitOfWork unitOfWork)
+    public WantToReadController(IUnitOfWork unitOfWork, IScrobblingService scrobblingService,
+        ILocalizationService localizationService)
     {
         _unitOfWork = unitOfWork;
+        _scrobblingService = scrobblingService;
+        _localizationService = localizationService;
+    }
+
+    /// <summary>
+    /// Return all Series that are in the current logged in user's Want to Read list, filtered (deprecated, use v2)
+    /// </summary>
+    /// <param name="userParams"></param>
+    /// <param name="filterDto"></param>
+    /// <returns></returns>
+    [HttpPost]
+    [Obsolete("use v2 instead")]
+    public async Task<ActionResult<PagedList<SeriesDto>>> GetWantToRead([FromQuery] UserParams userParams, FilterDto filterDto)
+    {
+        userParams ??= new UserParams();
+        var pagedList = await _unitOfWork.SeriesRepository.GetWantToReadForUserAsync(User.GetUserId(), userParams, filterDto);
+        Response.AddPaginationHeader(pagedList.CurrentPage, pagedList.PageSize, pagedList.TotalCount, pagedList.TotalPages);
+
+        await _unitOfWork.SeriesRepository.AddSeriesModifiers(User.GetUserId(), pagedList);
+
+        return Ok(pagedList);
     }
 
     /// <summary>
@@ -30,11 +59,11 @@ public class WantToReadController : BaseApiController
     /// <param name="userParams"></param>
     /// <param name="filterDto"></param>
     /// <returns></returns>
-    [HttpPost]
-    public async Task<ActionResult<PagedList<SeriesDto>>> GetWantToRead([FromQuery] UserParams userParams, FilterDto filterDto)
+    [HttpPost("v2")]
+    public async Task<ActionResult<PagedList<SeriesDto>>> GetWantToReadV2([FromQuery] UserParams userParams, FilterV2Dto filterDto)
     {
         userParams ??= new UserParams();
-        var pagedList = await _unitOfWork.SeriesRepository.GetWantToReadForUserAsync(User.GetUserId(), userParams, filterDto);
+        var pagedList = await _unitOfWork.SeriesRepository.GetWantToReadForUserV2Async(User.GetUserId(), userParams, filterDto);
         Response.AddPaginationHeader(pagedList.CurrentPage, pagedList.PageSize, pagedList.TotalCount, pagedList.TotalPages);
 
         await _unitOfWork.SeriesRepository.AddSeriesModifiers(User.GetUserId(), pagedList);
@@ -72,9 +101,16 @@ public class WantToReadController : BaseApiController
         }
 
         if (!_unitOfWork.HasChanges()) return Ok();
-        if (await _unitOfWork.CommitAsync()) return Ok();
+        if (await _unitOfWork.CommitAsync())
+        {
+            foreach (var sId in dto.SeriesIds)
+            {
+                BackgroundJob.Enqueue(() => _scrobblingService.ScrobbleWantToReadUpdate(user.Id, sId, true));
+            }
+            return Ok();
+        }
 
-        return BadRequest("There was an issue updating Read List");
+        return BadRequest(await _localizationService.Translate(User.GetUserId(), "generic-reading-list-update"));
     }
 
     /// <summary>
@@ -92,8 +128,16 @@ public class WantToReadController : BaseApiController
         user.WantToRead = user.WantToRead.Where(s => !dto.SeriesIds.Contains(s.Id)).ToList();
 
         if (!_unitOfWork.HasChanges()) return Ok();
-        if (await _unitOfWork.CommitAsync()) return Ok();
+        if (await _unitOfWork.CommitAsync())
+        {
+            foreach (var sId in dto.SeriesIds)
+            {
+                BackgroundJob.Enqueue(() => _scrobblingService.ScrobbleWantToReadUpdate(user.Id, sId, false));
+            }
 
-        return BadRequest("There was an issue updating Read List");
+            return Ok();
+        }
+
+        return BadRequest(await _localizationService.Translate(User.GetUserId(), "generic-reading-list-update"));
     }
 }

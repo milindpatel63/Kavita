@@ -1,4 +1,5 @@
-﻿using System.ComponentModel;
+﻿using System;
+using System.ComponentModel;
 
 namespace API.Entities.Enums;
 
@@ -82,6 +83,7 @@ public enum ServerSettingKey
     /// <summary>
     /// If Kavita should save bookmarks as WebP images
     /// </summary>
+    [Obsolete("Use EncodeMediaAs instead")]
     [Description("ConvertBookmarkToWebP")]
     ConvertBookmarkToWebP = 14,
     /// <summary>
@@ -102,6 +104,7 @@ public enum ServerSettingKey
     /// <summary>
     /// If Kavita should save covers as WebP images
     /// </summary>
+    [Obsolete("Use EncodeMediaAs instead")]
     [Description("ConvertCoverToWebP")]
     ConvertCoverToWebP = 19,
     /// <summary>
@@ -114,4 +117,36 @@ public enum ServerSettingKey
     /// </summary>
     [Description("IpAddresses")]
     IpAddresses = 21,
+    /// <summary>
+    /// Encode all media as PNG/WebP/AVIF/etc.
+    /// </summary>
+    /// <remarks>As of v0.7.3 this replaced ConvertCoverToWebP and ConvertBookmarkToWebP</remarks>
+    [Description("EncodeMediaAs")]
+    EncodeMediaAs = 22,
+    /// <summary>
+    /// A Kavita+ Subscription license key
+    /// </summary>
+    [Description("LicenseKey")]
+    LicenseKey = 23,
+    /// <summary>
+    /// The size in MB for Caching API data
+    /// </summary>
+    [Description("Cache")]
+    CacheSize = 24,
+    /// <summary>
+    /// How many Days since today in the past for reading progress, should content be considered for On Deck, before it gets removed automatically
+    /// </summary>
+    [Description("OnDeckProgressDays")]
+    OnDeckProgressDays = 25,
+    /// <summary>
+    /// How many Days since today in the past for chapter updates, should content be considered for On Deck, before it gets removed automatically
+    /// </summary>
+    [Description("OnDeckUpdateDays")]
+    OnDeckUpdateDays = 26,
+    /// <summary>
+    /// The size of the cover image thumbnail. Defaults to <see cref="CoverImageSize"/>.Default
+    /// </summary>
+    [Description("CoverImageSize")]
+    CoverImageSize = 27
+
 }

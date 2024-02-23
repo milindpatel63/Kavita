@@ -1,8 +1,15 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, HostListener, OnDestroy, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component, DestroyRef,
+  EventEmitter,
+  HostListener,
+  inject,
+  OnInit
+} from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
-import { Subject } from 'rxjs';
-import { take, debounceTime, takeUntil } from 'rxjs/operators';
+import { take, debounceTime } from 'rxjs/operators';
 import { BulkSelectionService } from 'src/app/cards/bulk-selection.service';
 import { FilterSettings } from 'src/app/metadata-filter/filter-settings';
 import { FilterUtilitiesService } from 'src/app/shared/_services/filter-utilities.service';
@@ -10,34 +17,44 @@ import { UtilityService, KEY_CODES } from 'src/app/shared/_services/utility.serv
 import { JumpKey } from 'src/app/_models/jumpbar/jump-key';
 import { Pagination } from 'src/app/_models/pagination';
 import { Series } from 'src/app/_models/series';
-import { SeriesFilter, FilterEvent } from 'src/app/_models/metadata/series-filter';
+import { FilterEvent } from 'src/app/_models/metadata/series-filter';
 import { Action, ActionItem } from 'src/app/_services/action-factory.service';
 import { ActionService } from 'src/app/_services/action.service';
 import { JumpbarService } from 'src/app/_services/jumpbar.service';
 import { MessageHubService, Message, EVENTS } from 'src/app/_services/message-hub.service';
 import { SeriesService } from 'src/app/_services/series.service';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import { SeriesCardComponent } from '../../../cards/series-card/series-card.component';
+import { CardDetailLayoutComponent } from '../../../cards/card-detail-layout/card-detail-layout.component';
+import { BulkOperationsComponent } from '../../../cards/bulk-operations/bulk-operations.component';
+import { NgIf, DecimalPipe } from '@angular/common';
+import { SideNavCompanionBarComponent } from '../../../sidenav/_components/side-nav-companion-bar/side-nav-companion-bar.component';
+import {translate, TranslocoDirective} from "@ngneat/transloco";
+import {SeriesFilterV2} from "../../../_models/metadata/v2/series-filter-v2";
 
 
 
 @Component({
-  selector: 'app-all-series',
-  templateUrl: './all-series.component.html',
-  styleUrls: ['./all-series.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'app-all-series',
+    templateUrl: './all-series.component.html',
+    styleUrls: ['./all-series.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: true,
+  imports: [SideNavCompanionBarComponent, NgIf, BulkOperationsComponent, CardDetailLayoutComponent, SeriesCardComponent, DecimalPipe, TranslocoDirective]
 })
-export class AllSeriesComponent implements OnInit, OnDestroy {
+export class AllSeriesComponent implements OnInit {
 
-  title: string = 'All Series';
+  title: string = translate('all-series.title');
   series: Series[] = [];
   loadingSeries = false;
   pagination!: Pagination;
-  filter: SeriesFilter | undefined = undefined;
-  onDestroy: Subject<void> = new Subject<void>();
+  filter: SeriesFilterV2 | undefined = undefined;
   filterSettings: FilterSettings = new FilterSettings();
   filterOpen: EventEmitter<boolean> = new EventEmitter();
-  filterActiveCheck!: SeriesFilter;
+  filterActiveCheck!: SeriesFilterV2;
   filterActive: boolean = false;
   jumpbarKeys: Array<JumpKey> = [];
+  private readonly destroyRef = inject(DestroyRef);
 
   bulkActionCallback = (action: ActionItem<any>, data: any) => {
     const selectedSeriesIndexies = this.bulkSelectionService.getSelectedCardsForSource('series');
@@ -69,7 +86,7 @@ export class AllSeriesComponent implements OnInit, OnDestroy {
           this.loadPage();
           this.bulkSelectionService.deselectAll();
         });
-        
+
         break;
       case Action.MarkAsUnread:
         this.actionService.markMultipleSeriesAsUnread(selectedSeries, () => {
@@ -87,34 +104,36 @@ export class AllSeriesComponent implements OnInit, OnDestroy {
     }
   }
 
-  constructor(private router: Router, private seriesService: SeriesService, 
-    private titleService: Title, private actionService: ActionService, 
+  constructor(private router: Router, private seriesService: SeriesService,
+    private titleService: Title, private actionService: ActionService,
     public bulkSelectionService: BulkSelectionService, private hubService: MessageHubService,
-    private utilityService: UtilityService, private route: ActivatedRoute, 
+    private utilityService: UtilityService, private route: ActivatedRoute,
     private filterUtilityService: FilterUtilitiesService, private jumpbarService: JumpbarService,
     private readonly cdRef: ChangeDetectorRef) {
-    
+
     this.router.routeReuseStrategy.shouldReuseRoute = () => false;
 
-    this.title = this.route.snapshot.queryParamMap.get('title') || 'All Series';
+    this.title = this.route.snapshot.queryParamMap.get('title') || this.title;
     this.titleService.setTitle('Kavita - ' + this.title);
 
     this.pagination = this.filterUtilityService.pagination(this.route.snapshot);
-    [this.filterSettings.presets, this.filterSettings.openByDefault]  = this.filterUtilityService.filterPresetsFromUrl(this.route.snapshot);
-    this.filterActiveCheck = this.filterUtilityService.createSeriesFilter();
+
+    this.filter = this.filterUtilityService.filterPresetsFromUrlV2(this.route.snapshot);
+    if (this.filter.statements.length === 0) {
+      this.filter!.statements.push(this.filterUtilityService.createSeriesV2DefaultStatement());
+    }
+    this.filterActiveCheck = this.filterUtilityService.createSeriesV2Filter();
+    this.filterActiveCheck!.statements.push(this.filterUtilityService.createSeriesV2DefaultStatement());
+    this.filterSettings.presetsV2 =  this.filter;
+
     this.cdRef.markForCheck();
   }
 
   ngOnInit(): void {
-    this.hubService.messages$.pipe(debounceTime(6000), takeUntil(this.onDestroy)).subscribe((event: Message<any>) => {
+    this.hubService.messages$.pipe(debounceTime(6000), takeUntilDestroyed(this.destroyRef)).subscribe((event: Message<any>) => {
       if (event.event !== EVENTS.SeriesAdded) return;
       this.loadPage();
     });
-  }
-
-  ngOnDestroy() {
-    this.onDestroy.next();
-    this.onDestroy.complete();
   }
 
   @HostListener('document:keydown.shift', ['$event'])
@@ -130,12 +149,16 @@ export class AllSeriesComponent implements OnInit, OnDestroy {
       this.bulkSelectionService.isShiftDown = false;
     }
   }
-  
+
 
   updateFilter(data: FilterEvent) {
-    this.filter = data.filter;
-    
-    if (!data.isFirst) this.filterUtilityService.updateUrlFromFilter(this.pagination, this.filter);
+    if (data.filterV2 === undefined) return;
+    this.filter = data.filterV2;
+
+    if (!data.isFirst) {
+      this.filterUtilityService.updateUrlFromFilterV2(this.pagination, this.filter);
+    }
+
     this.loadPage();
   }
 
@@ -143,7 +166,7 @@ export class AllSeriesComponent implements OnInit, OnDestroy {
     this.filterActive = !this.utilityService.deepEqual(this.filter, this.filterActiveCheck);
     this.loadingSeries = true;
     this.cdRef.markForCheck();
-    this.seriesService.getAllSeries(undefined, undefined, this.filter).pipe(take(1)).subscribe(series => {
+    this.seriesService.getAllSeriesV2(undefined, undefined, this.filter!).pipe(take(1)).subscribe(series => {
       this.series = series.result;
       this.jumpbarKeys = this.jumpbarService.getJumpKeys(this.series, (s: Series) => s.name);
       this.pagination = series.pagination;

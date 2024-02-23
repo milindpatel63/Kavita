@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using API.Data.Misc;
 using API.DTOs.CollectionTags;
 using API.Entities;
+using API.Entities.Enums;
 using API.Extensions;
 using API.Extensions.QueryExtensions;
 using AutoMapper;
@@ -34,7 +35,8 @@ public interface ICollectionTagRepository
     Task<IEnumerable<CollectionTag>> GetAllTagsAsync(CollectionTagIncludes includes = CollectionTagIncludes.None);
     Task<IList<string>> GetAllCoverImagesAsync();
     Task<bool> TagExists(string title);
-    Task<IList<CollectionTag>> GetAllWithNonWebPCovers();
+    Task<IList<CollectionTag>> GetAllWithCoversInDifferentEncoding(EncodeFormat encodeFormat);
+    Task<IList<string>> GetRandomCoverImagesAsync(int collectionId);
 }
 public class CollectionTagRepository : ICollectionTagRepository
 {
@@ -108,11 +110,27 @@ public class CollectionTagRepository : ICollectionTagRepository
             .AnyAsync(x => x.NormalizedTitle != null && x.NormalizedTitle.Equals(normalized));
     }
 
-    public async Task<IList<CollectionTag>> GetAllWithNonWebPCovers()
+    public async Task<IList<CollectionTag>> GetAllWithCoversInDifferentEncoding(EncodeFormat encodeFormat)
     {
+        var extension = encodeFormat.GetExtension();
         return await _context.CollectionTag
-            .Where(c => !string.IsNullOrEmpty(c.CoverImage) && !c.CoverImage.EndsWith(".webp"))
+            .Where(c => !string.IsNullOrEmpty(c.CoverImage) && !c.CoverImage.EndsWith(extension))
             .ToListAsync();
+    }
+
+    public async Task<IList<string>> GetRandomCoverImagesAsync(int collectionId)
+    {
+        var random = new Random();
+        var data = await _context.CollectionTag
+            .Where(t => t.Id == collectionId)
+            .SelectMany(t => t.SeriesMetadatas)
+            .Select(sm => sm.Series.CoverImage)
+            .Where(t => !string.IsNullOrEmpty(t))
+            .ToListAsync();
+        return data
+            .OrderBy(_ => random.Next())
+            .Take(4)
+            .ToList();
     }
 
     public async Task<IEnumerable<CollectionTagDto>> GetAllTagDtosAsync()

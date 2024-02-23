@@ -1,27 +1,48 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, OnDestroy, OnInit, Output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component, DestroyRef,
+  EventEmitter,
+  inject,
+  Input,
+  OnInit,
+  Output
+} from '@angular/core';
 import { ToastrService } from 'ngx-toastr';
-import { map, Observable, Subject, takeUntil } from 'rxjs';
+import { map, Observable } from 'rxjs';
 import { Download } from 'src/app/shared/_models/download';
 import { DownloadEvent, DownloadService } from 'src/app/shared/_services/download.service';
-import { UtilityService } from 'src/app/shared/_services/utility.service';
+import {Breakpoint, UtilityService} from 'src/app/shared/_services/utility.service';
 import { Chapter } from 'src/app/_models/chapter';
 import { LibraryType } from 'src/app/_models/library';
 import { RelationKind } from 'src/app/_models/series-detail/relation-kind';
 import { Volume } from 'src/app/_models/volume';
 import { Action, ActionItem } from 'src/app/_services/action-factory.service';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {ReadMoreComponent} from "../../shared/read-more/read-more.component";
+import {CommonModule} from "@angular/common";
+import {ImageComponent} from "../../shared/image/image.component";
+import {DownloadIndicatorComponent} from "../download-indicator/download-indicator.component";
+import {EntityInfoCardsComponent} from "../entity-info-cards/entity-info-cards.component";
+import {NgbProgressbar, NgbTooltip} from "@ng-bootstrap/ng-bootstrap";
+import {TranslocoDirective, TranslocoService} from "@ngneat/transloco";
+import {CardActionablesComponent} from "../../_single-module/card-actionables/card-actionables.component";
 
 @Component({
   selector: 'app-list-item',
+  standalone: true,
+  imports: [CommonModule, ReadMoreComponent, ImageComponent, DownloadIndicatorComponent, EntityInfoCardsComponent, CardActionablesComponent, NgbProgressbar, NgbTooltip, TranslocoDirective],
   templateUrl: './list-item.component.html',
   styleUrls: ['./list-item.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class ListItemComponent implements OnInit, OnDestroy {
+export class ListItemComponent implements OnInit {
 
   /**
    * Volume or Chapter to render
    */
-  @Input() entity!: Volume | Chapter;
+  @Input({required: true}) entity!: Volume | Chapter;
+  @Input({required: true}) libraryId!: number;
   /**
    * Image to show
    */
@@ -59,7 +80,7 @@ export class ListItemComponent implements OnInit, OnDestroy {
   */
   @Input() includeVolume: boolean = false;
   /**
-   * Show's the title if avaible on entity
+   * Show's the title if available on entity
    */
   @Input() showTitle: boolean = true;
   /**
@@ -68,24 +89,30 @@ export class ListItemComponent implements OnInit, OnDestroy {
   @Input() blur: boolean = false;
 
   @Output() read: EventEmitter<void> = new EventEmitter<void>();
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly translocoService = inject(TranslocoService);
 
   actionInProgress: boolean = false;
   summary: string = '';
   isChapter: boolean = false;
-  
+
 
   download$: Observable<DownloadEvent | null> | null = null;
   downloadInProgress: boolean = false;
-
-  private readonly onDestroy = new Subject<void>();
 
   get Title() {
     if (this.isChapter) return (this.entity as Chapter).titleName;
     return '';
   }
 
+  get ShowExtended() {
+    return this.utilityService.getActiveBreakpoint() === Breakpoint.Desktop;
+  }
 
-  constructor(private utilityService: UtilityService, private downloadService: DownloadService, 
+  protected readonly Breakpoint = Breakpoint;
+
+
+  constructor(public utilityService: UtilityService, private downloadService: DownloadService,
     private toastr: ToastrService, private readonly cdRef: ChangeDetectorRef) { }
 
   ngOnInit(): void {
@@ -99,22 +126,17 @@ export class ListItemComponent implements OnInit, OnDestroy {
     this.cdRef.markForCheck();
 
 
-    this.download$ = this.downloadService.activeDownloads$.pipe(takeUntil(this.onDestroy), map((events) => {
+    this.download$ = this.downloadService.activeDownloads$.pipe(takeUntilDestroyed(this.destroyRef), map((events) => {
       if(this.utilityService.isVolume(this.entity)) return events.find(e => e.entityType === 'volume' && e.subTitle === this.downloadService.downloadSubtitle('volume', (this.entity as Volume))) || null;
       if(this.utilityService.isChapter(this.entity)) return events.find(e => e.entityType === 'chapter' && e.subTitle === this.downloadService.downloadSubtitle('chapter', (this.entity as Chapter))) || null;
       return null;
     }));
   }
 
-  ngOnDestroy(): void {
-    this.onDestroy.next();
-    this.onDestroy.complete();
-  }
-
   performAction(action: ActionItem<any>) {
     if (action.action == Action.Download) {
-      if (this.downloadInProgress === true) {
-        this.toastr.info('Download is already in progress. Please wait.');
+      if (this.downloadInProgress) {
+        this.toastr.info(this.translocoService.translate('toasts.download-in-progress'));
         return;
       }
 

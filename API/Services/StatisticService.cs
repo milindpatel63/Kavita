@@ -27,7 +27,7 @@ public interface IStatisticService
     Task<IEnumerable<TopReadDto>> GetTopUsers(int days);
     Task<IEnumerable<ReadHistoryEvent>> GetReadingHistory(int userId);
     Task<IEnumerable<PagesReadOnADayCount<DateTime>>> ReadCountByDay(int userId = 0, int days = 0);
-    IEnumerable<StatCount<DayOfWeek>> GetDayBreakdown();
+    IEnumerable<StatCount<DayOfWeek>> GetDayBreakdown(int userId = 0);
     IEnumerable<StatCount<int>> GetPagesReadCountByYear(int userId = 0);
     IEnumerable<StatCount<int>> GetWordsReadCountByYear(int userId = 0);
     Task UpdateServerStatistics();
@@ -345,10 +345,6 @@ public class StatisticService : IStatisticService
             .WhereIf(days > 0, x => x.appUserProgresses.LastModified >= DateTime.Now.AddDays(days * -1));
 
 
-        // .Where(p => p.chapter.AvgHoursToRead > 0)
-        // .SumAsync(p =>
-        //     p.chapter.AvgHoursToRead * (p.progress.PagesRead / (1.0f * p.chapter.Pages))))
-
         var results = await query.GroupBy(x => new
             {
                 Day = x.appUserProgresses.LastModified.Date,
@@ -415,11 +411,12 @@ public class StatisticService : IStatisticService
         return results.OrderBy(r => r.Value);
     }
 
-    public IEnumerable<StatCount<DayOfWeek>> GetDayBreakdown()
+    public IEnumerable<StatCount<DayOfWeek>> GetDayBreakdown(int userId)
     {
         return _context.AppUserProgresses
             .AsSplitQuery()
             .AsNoTracking()
+            .WhereIf(userId > 0, p => p.AppUserId == userId)
             .GroupBy(p => p.LastModified.DayOfWeek)
             .OrderBy(g => g.Key)
             .Select(g => new StatCount<DayOfWeek>{ Value = g.Key, Count = g.Count() })
@@ -508,16 +505,9 @@ public class StatisticService : IStatisticService
     public async Task<long> TimeSpentReadingForUsersAsync(IList<int> userIds, IList<int> libraryIds)
     {
         var query = _context.AppUserProgresses
+            .WhereIf(userIds.Any(), p => userIds.Contains(p.AppUserId))
+            .WhereIf(libraryIds.Any(), p => libraryIds.Contains(p.LibraryId))
             .AsSplitQuery();
-
-        if (userIds.Any())
-        {
-            query = query.Where(p => userIds.Contains(p.AppUserId));
-        }
-        if (libraryIds.Any())
-        {
-            query = query.Where(p => libraryIds.Contains(p.LibraryId));
-        }
 
         return (long) Math.Round(await query
             .Join(_context.Chapter,

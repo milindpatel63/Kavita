@@ -15,6 +15,7 @@ using API.Services.Tasks.Scanner;
 using AutoMapper;
 using Flurl.Http;
 using Kavita.Common;
+using Kavita.Common.EnvironmentInfo;
 using Kavita.Common.Extensions;
 using Kavita.Common.Helpers;
 using Microsoft.AspNetCore.Authorization;
@@ -32,9 +33,11 @@ public class SettingsController : BaseApiController
     private readonly IMapper _mapper;
     private readonly IEmailService _emailService;
     private readonly ILibraryWatcher _libraryWatcher;
+    private readonly ILocalizationService _localizationService;
 
     public SettingsController(ILogger<SettingsController> logger, IUnitOfWork unitOfWork, ITaskScheduler taskScheduler,
-        IDirectoryService directoryService, IMapper mapper, IEmailService emailService, ILibraryWatcher libraryWatcher)
+        IDirectoryService directoryService, IMapper mapper, IEmailService emailService, ILibraryWatcher libraryWatcher,
+        ILocalizationService localizationService)
     {
         _logger = logger;
         _unitOfWork = unitOfWork;
@@ -43,6 +46,7 @@ public class SettingsController : BaseApiController
         _mapper = mapper;
         _emailService = emailService;
         _libraryWatcher = libraryWatcher;
+        _localizationService = localizationService;
     }
 
     [HttpGet("base-url")]
@@ -181,21 +185,55 @@ public class SettingsController : BaseApiController
                 _unitOfWork.SettingsRepository.Update(setting);
             }
 
+            if (setting.Key == ServerSettingKey.OnDeckProgressDays && updateSettingsDto.OnDeckProgressDays + string.Empty != setting.Value)
+            {
+                setting.Value = updateSettingsDto.OnDeckProgressDays + string.Empty;
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
+
+            if (setting.Key == ServerSettingKey.OnDeckUpdateDays && updateSettingsDto.OnDeckUpdateDays + string.Empty != setting.Value)
+            {
+                setting.Value = updateSettingsDto.OnDeckUpdateDays + string.Empty;
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
+
+            if (setting.Key == ServerSettingKey.CoverImageSize && updateSettingsDto.CoverImageSize + string.Empty != setting.Value)
+            {
+                setting.Value = updateSettingsDto.CoverImageSize + string.Empty;
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
+
+            if (setting.Key == ServerSettingKey.TaskScan && updateSettingsDto.TaskScan != setting.Value)
+            {
+                setting.Value = updateSettingsDto.TaskScan;
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
+
             if (setting.Key == ServerSettingKey.Port && updateSettingsDto.Port + string.Empty != setting.Value)
             {
+                if (OsInfo.IsDocker) continue;
                 setting.Value = updateSettingsDto.Port + string.Empty;
                 // Port is managed in appSetting.json
                 Configuration.Port = updateSettingsDto.Port;
                 _unitOfWork.SettingsRepository.Update(setting);
             }
 
+            if (setting.Key == ServerSettingKey.CacheSize && updateSettingsDto.CacheSize + string.Empty != setting.Value)
+            {
+                setting.Value = updateSettingsDto.CacheSize + string.Empty;
+                // CacheSize is managed in appSetting.json
+                Configuration.CacheSize = updateSettingsDto.CacheSize;
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
+
             if (setting.Key == ServerSettingKey.IpAddresses && updateSettingsDto.IpAddresses != setting.Value)
             {
+                if (OsInfo.IsDocker) continue;
                 // Validate IP addresses
-                foreach (var ipAddress in updateSettingsDto.IpAddresses.Split(','))
+                foreach (var ipAddress in updateSettingsDto.IpAddresses.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
                 {
                     if (!IPAddress.TryParse(ipAddress.Trim(), out _)) {
-                        return BadRequest($"IP Address '{ipAddress}' is invalid");
+                        return BadRequest(await _localizationService.Translate(User.GetUserId(), "ip-address-invalid", ipAddress));
                     }
                 }
 
@@ -207,10 +245,10 @@ public class SettingsController : BaseApiController
 
             if (setting.Key == ServerSettingKey.BaseUrl && updateSettingsDto.BaseUrl + string.Empty != setting.Value)
             {
-                var path = !updateSettingsDto.BaseUrl.StartsWith("/")
+                var path = !updateSettingsDto.BaseUrl.StartsWith('/')
                     ? $"/{updateSettingsDto.BaseUrl}"
                     : updateSettingsDto.BaseUrl;
-                path = !path.EndsWith("/")
+                path = !path.EndsWith('/')
                     ? $"{path}/"
                     : path;
                 setting.Value = path;
@@ -231,22 +269,16 @@ public class SettingsController : BaseApiController
                 _unitOfWork.SettingsRepository.Update(setting);
             }
 
-            if (setting.Key == ServerSettingKey.ConvertBookmarkToWebP && updateSettingsDto.ConvertBookmarkToWebP + string.Empty != setting.Value)
+            if (setting.Key == ServerSettingKey.EncodeMediaAs && updateSettingsDto.EncodeMediaAs + string.Empty != setting.Value)
             {
-                setting.Value = updateSettingsDto.ConvertBookmarkToWebP + string.Empty;
-                _unitOfWork.SettingsRepository.Update(setting);
-            }
-
-            if (setting.Key == ServerSettingKey.ConvertCoverToWebP && updateSettingsDto.ConvertCoverToWebP + string.Empty != setting.Value)
-            {
-                setting.Value = updateSettingsDto.ConvertCoverToWebP + string.Empty;
+                setting.Value = updateSettingsDto.EncodeMediaAs + string.Empty;
                 _unitOfWork.SettingsRepository.Update(setting);
             }
 
             if (setting.Key == ServerSettingKey.HostName && updateSettingsDto.HostName + string.Empty != setting.Value)
             {
                 setting.Value = (updateSettingsDto.HostName + string.Empty).Trim();
-                if (setting.Value.EndsWith("/")) setting.Value = setting.Value.Substring(0, setting.Value.Length - 1);
+                if (setting.Value.EndsWith('/')) setting.Value = setting.Value.Substring(0, setting.Value.Length - 1);
                 _unitOfWork.SettingsRepository.Update(setting);
             }
 
@@ -256,7 +288,7 @@ public class SettingsController : BaseApiController
                 // Validate new directory can be used
                 if (!await _directoryService.CheckWriteAccess(bookmarkDirectory))
                 {
-                    return BadRequest("Bookmark Directory does not have correct permissions for Kavita to use");
+                    return BadRequest(await _localizationService.Translate(User.GetUserId(), "bookmark-dir-permissions"));
                 }
 
                 originalBookmarkDirectory = setting.Value;
@@ -285,7 +317,7 @@ public class SettingsController : BaseApiController
             {
                 if (updateSettingsDto.TotalBackups > 30 || updateSettingsDto.TotalBackups < 1)
                 {
-                    return BadRequest("Total Backups must be between 1 and 30");
+                    return BadRequest(await _localizationService.Translate(User.GetUserId(), "total-backups"));
                 }
                 setting.Value = updateSettingsDto.TotalBackups + string.Empty;
                 _unitOfWork.SettingsRepository.Update(setting);
@@ -295,7 +327,7 @@ public class SettingsController : BaseApiController
             {
                 if (updateSettingsDto.TotalLogs > 30 || updateSettingsDto.TotalLogs < 1)
                 {
-                    return BadRequest("Total Logs must be between 1 and 30");
+                    return BadRequest(await _localizationService.Translate(User.GetUserId(), "total-logs"));
                 }
                 setting.Value = updateSettingsDto.TotalLogs + string.Empty;
                 _unitOfWork.SettingsRepository.Update(setting);
@@ -343,7 +375,7 @@ public class SettingsController : BaseApiController
         {
             _logger.LogError(ex, "There was an exception when updating server settings");
             await _unitOfWork.RollbackAsync();
-            return BadRequest("There was a critical issue. Please try again.");
+            return BadRequest(await _localizationService.Translate(User.GetUserId(), "generic-error"));
         }
 
 

@@ -88,6 +88,12 @@ export enum Action {
    * Import some data into Kavita
    */
   Import = 18,
+  /**
+   * Removes the Series from On Deck inclusion
+   */
+  RemoveFromOnDeck = 19,
+  AddRuleGroup = 20,
+  RemoveRuleGroup = 21
 }
 
 export interface ActionItem<T> {
@@ -174,6 +180,15 @@ export class ActionFactoryService {
     return this.applyCallbackToList(this.bookmarkActions, callback);
   }
 
+  getMetadataFilterActions(callback: (action: ActionItem<any>, data: any) => void) {
+    const actions = [
+      {title: 'add-rule-group-and', action: Action.AddRuleGroup, requiresAdmin: false, children: [], callback: this.dummyCallback},
+      {title: 'add-rule-group-or', action: Action.AddRuleGroup, requiresAdmin: false, children: [], callback: this.dummyCallback},
+      {title: 'remove-rule-group', action: Action.RemoveRuleGroup, requiresAdmin: false, children: [], callback: this.dummyCallback},
+    ];
+    return this.applyCallbackToList(actions, callback);
+  }
+
   dummyCallback(action: ActionItem<any>, data: any) {}
 
   filterSendToAction(actions: Array<ActionItem<Chapter>>, chapter: Chapter) {
@@ -188,27 +203,27 @@ export class ActionFactoryService {
     this.libraryActions = [
       {
         action: Action.Scan,
-        title: 'Scan Library',
+        title: 'scan-library',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
       {
         action: Action.Submenu,
-        title: 'Others',
+        title: 'others',
         callback: this.dummyCallback,
         requiresAdmin: true,
         children: [
           {
             action: Action.RefreshMetadata,
-            title: 'Refresh Covers',
+            title: 'refresh-covers',
             callback: this.dummyCallback,
             requiresAdmin: true,
             children: [],
           },
           {
             action: Action.AnalyzeFiles,
-            title: 'Analyze Files',
+            title: 'analyze-files',
             callback: this.dummyCallback,
             requiresAdmin: true,
             children: [],
@@ -217,7 +232,7 @@ export class ActionFactoryService {
       },
       {
         action: Action.Edit,
-        title: 'Settings',
+        title: 'settings',
         callback: this.dummyCallback,
         requiresAdmin: true,
         children: [],
@@ -227,9 +242,17 @@ export class ActionFactoryService {
     this.collectionTagActions = [
       {
         action: Action.Edit,
-        title: 'Edit',
+        title: 'edit',
         callback: this.dummyCallback,
         requiresAdmin: true,
+        children: [],
+      },
+      {
+        action: Action.Delete,
+        title: 'delete',
+        callback: this.dummyCallback,
+        requiresAdmin: false,
+        class: 'danger',
         children: [],
       },
     ];
@@ -237,55 +260,55 @@ export class ActionFactoryService {
     this.seriesActions = [
       {
         action: Action.MarkAsRead,
-        title: 'Mark as Read',
+        title: 'mark-as-read',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
       {
         action: Action.MarkAsUnread,
-        title: 'Mark as Unread',
+        title: 'mark-as-unread',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
       {
         action: Action.Scan,
-        title: 'Scan Series',
+        title: 'scan-series',
         callback: this.dummyCallback,
         requiresAdmin: true,
         children: [],
       },
       {
         action: Action.Submenu,
-        title: 'Add to',
+        title: 'add-to',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [
         	{
             action: Action.AddToWantToReadList,
-            title: 'Add to Want to Read',
+            title: 'add-to-want-to-read',
             callback: this.dummyCallback,
             requiresAdmin: false,
             children: [],
           },
           {
             action: Action.RemoveFromWantToReadList,
-            title: 'Remove from Want to Read',
+            title: 'remove-from-want-to-read',
             callback: this.dummyCallback,
             requiresAdmin: false,
             children: [],
           },
           {
             action: Action.AddToReadingList,
-            title: 'Add to Reading List',
+            title: 'add-to-reading-list',
             callback: this.dummyCallback,
             requiresAdmin: false,
             children: [],
           },
           {
             action: Action.AddToCollection,
-            title: 'Add to Collection',
+            title: 'add-to-collection',
             callback: this.dummyCallback,
             requiresAdmin: true,
             children: [],
@@ -294,7 +317,7 @@ export class ActionFactoryService {
       },
       {
         action: Action.Submenu,
-        title: 'Send To',
+        title: 'send-to',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [
@@ -312,27 +335,27 @@ export class ActionFactoryService {
       },
       {
         action: Action.Submenu,
-        title: 'Others',
+        title: 'others',
         callback: this.dummyCallback,
         requiresAdmin: true,
         children: [
           {
             action: Action.RefreshMetadata,
-            title: 'Refresh Covers',
+            title: 'refresh-covers',
             callback: this.dummyCallback,
             requiresAdmin: true,
             children: [],
           },
           {
             action: Action.AnalyzeFiles,
-            title: 'Analyze Files',
+            title: 'analyze-files',
             callback: this.dummyCallback,
             requiresAdmin: true,
             children: [],
           },
           {
             action: Action.Delete,
-            title: 'Delete',
+            title: 'delete',
             callback: this.dummyCallback,
             requiresAdmin: true,
             class: 'danger',
@@ -342,14 +365,14 @@ export class ActionFactoryService {
       },
       {
         action: Action.Download,
-        title: 'Download',
+        title: 'download',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
       {
         action: Action.Edit,
-        title: 'Edit',
+        title: 'edit',
         callback: this.dummyCallback,
         requiresAdmin: true,
         children: [],
@@ -359,34 +382,34 @@ export class ActionFactoryService {
     this.volumeActions = [
       {
         action: Action.IncognitoRead,
-        title: 'Read Incognito',
+        title: 'read-incognito',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
       {
         action: Action.MarkAsRead,
-        title: 'Mark as Read',
+        title: 'mark-as-read',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
       {
         action: Action.MarkAsUnread,
-        title: 'Mark as Unread',
+        title: 'mark-as-unread',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
 			{
 				action: Action.Submenu,
-				title: 'Add to',
+				title: 'add-to',
 				callback: this.dummyCallback,
 				requiresAdmin: false,
 				children: [
 					{
 						action: Action.AddToReadingList,
-						title: 'Add to Reading List',
+						title: 'add-to-reading-list',
 						callback: this.dummyCallback,
 						requiresAdmin: false,
 						children: [],
@@ -395,7 +418,7 @@ export class ActionFactoryService {
 			},
       {
         action: Action.Submenu,
-        title: 'Send To',
+        title: 'send-to',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [
@@ -413,14 +436,14 @@ export class ActionFactoryService {
       },
       {
         action: Action.Download,
-        title: 'Download',
+        title: 'download',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
       {
         action: Action.Edit,
-        title: 'Details',
+        title: 'details',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
@@ -430,34 +453,34 @@ export class ActionFactoryService {
     this.chapterActions = [
       {
         action: Action.IncognitoRead,
-        title: 'Read Incognito',
+        title: 'read-incognito',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
       {
         action: Action.MarkAsRead,
-        title: 'Mark as Read',
+        title: 'mark-as-read',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
       {
         action: Action.MarkAsUnread,
-        title: 'Mark as Unread',
+        title: 'mark-as-unread',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
 			{
 				action: Action.Submenu,
-				title: 'Add to',
+				title: 'add-to',
 				callback: this.dummyCallback,
 				requiresAdmin: false,
 				children: [
 					{
 						action: Action.AddToReadingList,
-						title: 'Add to Reading List',
+						title: 'add-to-reading-list',
 						callback: this.dummyCallback,
 						requiresAdmin: false,
 						children: [],
@@ -466,7 +489,7 @@ export class ActionFactoryService {
 			},
       {
         action: Action.Submenu,
-        title: 'Send To',
+        title: 'send-to',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [
@@ -485,14 +508,14 @@ export class ActionFactoryService {
       // RBS will handle rendering this, so non-admins with download are appicable
       {
         action: Action.Download,
-        title: 'Download',
+        title: 'download',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
       {
         action: Action.Edit,
-        title: 'Details',
+        title: 'details',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
@@ -502,14 +525,14 @@ export class ActionFactoryService {
     this.readingListActions = [
       {
         action: Action.Edit,
-        title: 'Edit',
+        title: 'edit',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
       {
         action: Action.Delete,
-        title: 'Delete',
+        title: 'delete',
         callback: this.dummyCallback,
         requiresAdmin: false,
         class: 'danger',
@@ -520,21 +543,21 @@ export class ActionFactoryService {
     this.bookmarkActions = [
       {
         action: Action.ViewSeries,
-        title: 'View Series',
+        title: 'view-series',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
       {
         action: Action.DownloadBookmark,
-        title: 'Download',
+        title: 'download',
         callback: this.dummyCallback,
         requiresAdmin: false,
         children: [],
       },
       {
         action: Action.Delete,
-        title: 'Clear',
+        title: 'clear',
         callback: this.dummyCallback,
         class: 'danger',
         requiresAdmin: false,
@@ -563,9 +586,7 @@ export class ActionFactoryService {
 
   // Checks the whole tree for the action and returns true if it exists
   public hasAction(actions: Array<ActionItem<any>>, action: Action) {
-    var actionFound = false;
-
-    if (actions.length === 0) return actionFound;
+    if (actions.length === 0) return false;
 
     for (let i = 0; i < actions.length; i++)
     {
@@ -573,8 +594,7 @@ export class ActionFactoryService {
       if (this.hasAction(actions[i].children, action)) return true;
     }
 
-
-    return actionFound;
+    return false;
   }
 
 }

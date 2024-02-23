@@ -1,6 +1,15 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, OnDestroy, OnInit, Output } from '@angular/core';
-import { FormControl } from '@angular/forms';
-import { map, Subject, Observable, of, firstValueFrom, takeUntil, ReplaySubject } from 'rxjs';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component, DestroyRef,
+  EventEmitter,
+  inject,
+  Input,
+  OnInit,
+  Output
+} from '@angular/core';
+import {FormControl, ReactiveFormsModule} from '@angular/forms';
+import { map, Observable, of, firstValueFrom, ReplaySubject } from 'rxjs';
 import { UtilityService } from 'src/app/shared/_services/utility.service';
 import { TypeaheadSettings } from 'src/app/typeahead/_models/typeahead-settings';
 import { SearchResult } from 'src/app/_models/search/search-result';
@@ -10,6 +19,11 @@ import { ImageService } from 'src/app/_services/image.service';
 import { LibraryService } from 'src/app/_services/library.service';
 import { SearchService } from 'src/app/_services/search.service';
 import { SeriesService } from 'src/app/_services/series.service';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {TypeaheadComponent} from "../../typeahead/_components/typeahead.component";
+import {CommonModule} from "@angular/common";
+import {TranslocoModule} from "@ngneat/transloco";
+import {RelationshipPipe} from "../../pipe/relationship.pipe";
 
 interface RelationControl {
   series: {id: number, name: string} | undefined; // Will add type as well
@@ -19,15 +33,23 @@ interface RelationControl {
 
 @Component({
   selector: 'app-edit-series-relation',
+  standalone: true,
+  imports: [
+    TypeaheadComponent,
+    CommonModule,
+    ReactiveFormsModule,
+    TranslocoModule,
+    RelationshipPipe,
+  ],
   templateUrl: './edit-series-relation.component.html',
   styleUrls: ['./edit-series-relation.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class EditSeriesRelationComponent implements OnInit, OnDestroy {
+export class EditSeriesRelationComponent implements OnInit {
 
-  @Input() series!: Series;
+  @Input({required: true}) series!: Series;
   /**
-   * This will tell the component to save based on it's internal state
+   * This will tell the component to save based on its internal state
    */
   @Input() save: EventEmitter<void> = new EventEmitter();
 
@@ -35,19 +57,17 @@ export class EditSeriesRelationComponent implements OnInit, OnDestroy {
 
   relationOptions = RelationKinds;
   relations: Array<RelationControl> = [];
-  seriesSettings: TypeaheadSettings<SearchResult> = new TypeaheadSettings();
   libraryNames: {[key:number]: string} = {};
 
   focusTypeahead = new EventEmitter();
+  private readonly destroyRef = inject(DestroyRef);
 
   get RelationKind() {
     return RelationKind;
   }
 
 
-  private onDestroy: Subject<void> = new Subject<void>();
-
-  constructor(private seriesService: SeriesService, private utilityService: UtilityService, 
+  constructor(private seriesService: SeriesService, private utilityService: UtilityService,
     public imageService: ImageService, private libraryService: LibraryService,  private searchService: SearchService,
     private readonly cdRef: ChangeDetectorRef) {}
 
@@ -74,12 +94,7 @@ export class EditSeriesRelationComponent implements OnInit, OnDestroy {
       this.cdRef.markForCheck();
     });
 
-    this.save.pipe(takeUntil(this.onDestroy)).subscribe(() => this.saveState());
-  }
-
-  ngOnDestroy(): void {
-      this.onDestroy.next();
-      this.onDestroy.complete();
+    this.save.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.saveState());
   }
 
   setupRelationRows(relations: Array<Series>, kind: RelationKind) {

@@ -1,6 +1,8 @@
-import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ContentChild, EventEmitter, Input, Output, TemplateRef, TrackByFunction, ViewChild } from '@angular/core';
-import { VirtualScrollerComponent } from '@iharbeck/ngx-virtual-scroller';
+import { CdkDragDrop, moveItemInArray, CdkDropList, CdkDrag, CdkDragHandle } from '@angular/cdk/drag-drop';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ContentChild, EventEmitter, Input, Output, TemplateRef, TrackByFunction } from '@angular/core';
+import { VirtualScrollerModule } from '@iharbeck/ngx-virtual-scroller';
+import { NgIf, NgFor, NgTemplateOutlet } from '@angular/common';
+import {TranslocoDirective} from "@ngneat/transloco";
 
 export interface IndexUpdateEvent {
   fromPosition: number;
@@ -14,10 +16,12 @@ export interface ItemRemoveEvent {
 }
 
 @Component({
-  selector: 'app-draggable-ordered-list',
-  templateUrl: './draggable-ordered-list.component.html',
-  styleUrls: ['./draggable-ordered-list.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'app-draggable-ordered-list',
+    templateUrl: './draggable-ordered-list.component.html',
+    styleUrls: ['./draggable-ordered-list.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: true,
+  imports: [NgIf, VirtualScrollerModule, NgFor, NgTemplateOutlet, CdkDropList, CdkDrag, CdkDragHandle, TranslocoDirective]
 })
 export class DraggableOrderedListComponent {
 
@@ -54,7 +58,7 @@ export class DraggableOrderedListComponent {
   }
 
   updateIndex(previousIndex: number, item: any) {
-    // get the new value of the input 
+    // get the new value of the input
     var inputElem = <HTMLInputElement>document.querySelector('#reorder-' + previousIndex);
     const newIndex = parseInt(inputElem.value, 10);
     if (previousIndex === newIndex)  return;

@@ -1,6 +1,6 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Injectable } from '@angular/core';
-import { Location } from '@angular/common';
+import {DestroyRef, inject, Injectable} from '@angular/core';
+import {Location} from '@angular/common';
 import { Router } from '@angular/router';
 import { environment } from 'src/environments/environment';
 import { ChapterInfo } from '../manga-reader/_models/chapter-info';
@@ -10,15 +10,15 @@ import { MangaFormat } from '../_models/manga-format';
 import { BookmarkInfo } from '../_models/manga-reader/bookmark-info';
 import { PageBookmark } from '../_models/readers/page-bookmark';
 import { ProgressBookmark } from '../_models/readers/progress-bookmark';
-import { SeriesFilter } from '../_models/metadata/series-filter';
 import { UtilityService } from '../shared/_services/utility.service';
 import { FilterUtilitiesService } from '../shared/_services/filter-utilities.service';
 import { FileDimension } from '../manga-reader/_models/file-dimension';
 import screenfull from 'screenfull';
 import { TextResonse } from '../_types/text-response';
 import { AccountService } from './account.service';
-import { Subject, takeUntil } from 'rxjs';
-import { OnDestroy } from '@angular/core';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {PersonalToC} from "../_models/readers/personal-toc";
+import {SeriesFilterV2} from "../_models/metadata/v2/series-filter-v2";
 
 export const CHAPTER_ID_DOESNT_EXIST = -1;
 export const CHAPTER_ID_NOT_FETCHED = -2;
@@ -26,29 +26,25 @@ export const CHAPTER_ID_NOT_FETCHED = -2;
 @Injectable({
   providedIn: 'root'
 })
-export class ReaderService implements OnDestroy {
+export class ReaderService {
 
+  private readonly destroyRef = inject(DestroyRef);
   baseUrl = environment.apiUrl;
   encodedKey: string = '';
-  private onDestroy: Subject<void> = new Subject();
 
   // Override background color for reader and restore it onDestroy
   private originalBodyColor!: string;
 
-  constructor(private httpClient: HttpClient, private router: Router, 
+  constructor(private httpClient: HttpClient, private router: Router,
     private location: Location, private utilityService: UtilityService,
-    private filterUtilitySerivce: FilterUtilitiesService, private accountService: AccountService) {
-      this.accountService.currentUser$.pipe(takeUntil(this.onDestroy)).subscribe(user => {
+    private filterUtilityService: FilterUtilitiesService, private accountService: AccountService) {
+      this.accountService.currentUser$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(user => {
         if (user) {
           this.encodedKey = encodeURIComponent(user.apiKey);
         }
       });
   }
 
-  ngOnDestroy() {
-    this.onDestroy.next();
-    this.onDestroy.complete();
-  }
 
   getNavigationArray(libraryId: number, seriesId: number, chapterId: number, format: MangaFormat) {
     if (format === undefined) format = MangaFormat.ARCHIVE;
@@ -74,12 +70,8 @@ export class ReaderService implements OnDestroy {
     return this.httpClient.post(this.baseUrl + 'reader/unbookmark', {seriesId, volumeId, chapterId, page});
   }
 
-  getAllBookmarks(filter: SeriesFilter | undefined) {
-    let params = new HttpParams();
-    params = this.utilityService.addPaginationIfExists(params, undefined, undefined);
-    const data = this.filterUtilitySerivce.createSeriesFilter(filter);
-
-    return this.httpClient.post<PageBookmark[]>(this.baseUrl + 'reader/all-bookmarks', data);
+  getAllBookmarks(filter: SeriesFilterV2 | undefined) {
+    return this.httpClient.post<PageBookmark[]>(this.baseUrl + 'reader/all-bookmarks', filter);
   }
 
   getBookmarks(chapterId: number) {
@@ -281,5 +273,52 @@ export class ReaderService implements OnDestroy {
     } else {
       this.location.back();
     }
+  }
+
+  removePersonalToc(chapterId: number, pageNumber: number, title: string) {
+    return this.httpClient.delete(this.baseUrl + `reader/ptoc?chapterId=${chapterId}&pageNum=${pageNumber}&title=${encodeURIComponent(title)}`);
+  }
+
+  getPersonalToC(chapterId: number) {
+    return this.httpClient.get<Array<PersonalToC>>(this.baseUrl + 'reader/ptoc?chapterId=' + chapterId);
+  }
+
+  createPersonalToC(libraryId: number, seriesId: number, volumeId: number, chapterId: number, pageNumber: number, title: string, bookScrollId: string | null) {
+    return this.httpClient.post(this.baseUrl + 'reader/create-ptoc', {libraryId, seriesId, volumeId, chapterId, pageNumber, title, bookScrollId});
+  }
+
+  getElementFromXPath(path: string) {
+    const node = document.evaluate(path, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+    if (node?.nodeType === Node.ELEMENT_NODE) {
+      return node as Element;
+    }
+    return null;
+  }
+
+  /**
+   *
+   * @param element
+   * @param pureXPath Will ignore shortcuts like id('')
+   */
+  getXPathTo(element: any, pureXPath = false): string {
+    if (element === null) return '';
+    if (!pureXPath) {
+      if (element.id !== '') { return 'id("' + element.id + '")'; }
+      if (element === document.body) { return element.tagName; }
+    }
+
+
+    let ix = 0;
+    const siblings = element.parentNode?.childNodes || [];
+    for (let sibling of siblings) {
+      if (sibling === element) {
+        return this.getXPathTo(element.parentNode) + '/' + element.tagName + '[' + (ix + 1) + ']';
+      }
+      if (sibling.nodeType === 1 && sibling.tagName === element.tagName) {
+        ix++;
+      }
+
+    }
+    return '';
   }
 }

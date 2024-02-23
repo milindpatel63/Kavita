@@ -33,6 +33,8 @@ public class WordCountAnalyzerService : IWordCountAnalyzerService
     private readonly ICacheHelper _cacheHelper;
     private readonly IReaderService _readerService;
 
+    private const int AverageCharactersPerWord = 5;
+
     public WordCountAnalyzerService(ILogger<WordCountAnalyzerService> logger, IUnitOfWork unitOfWork, IEventHub eventHub,
         ICacheHelper cacheHelper, IReaderService readerService)
     {
@@ -172,7 +174,7 @@ public class WordCountAnalyzerService : IWordCountAnalyzerService
                         {
                             using var book = await EpubReader.OpenBookAsync(filePath, BookService.BookReaderOptions);
 
-                            var totalPages = book.Content.Html.Values;
+                            var totalPages = book.Content.Html.Local;
                             foreach (var bookPage in totalPages)
                             {
                                 var progress = Math.Max(0F,
@@ -238,16 +240,13 @@ public class WordCountAnalyzerService : IWordCountAnalyzerService
     }
 
 
-    private static async Task<int> GetWordCountFromHtml(EpubContentFileRef bookFile)
+    private static async Task<int> GetWordCountFromHtml(EpubLocalTextContentFileRef bookFile)
     {
         var doc = new HtmlDocument();
-        doc.LoadHtml(await bookFile.ReadContentAsTextAsync());
+        doc.LoadHtml(await bookFile.ReadContentAsync());
 
         var textNodes = doc.DocumentNode.SelectNodes("//body//text()[not(parent::script)]");
-        if (textNodes == null) return 0;
-        return textNodes
-            .Select(node => node.InnerText.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                .Where(s => char.IsLetter(s[0])))
-            .Sum(words => words.Count());
+        return textNodes?.Sum(node => node.InnerText.Count(char.IsLetter)) / AverageCharactersPerWord ?? 0;
     }
+
 }

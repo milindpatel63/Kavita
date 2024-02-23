@@ -30,11 +30,12 @@ public class DownloadController : BaseApiController
     private readonly ILogger<DownloadController> _logger;
     private readonly IBookmarkService _bookmarkService;
     private readonly IAccountService _accountService;
+    private readonly ILocalizationService _localizationService;
     private const string DefaultContentType = "application/octet-stream";
 
     public DownloadController(IUnitOfWork unitOfWork, IArchiveService archiveService, IDirectoryService directoryService,
         IDownloadService downloadService, IEventHub eventHub, ILogger<DownloadController> logger, IBookmarkService bookmarkService,
-        IAccountService accountService)
+        IAccountService accountService, ILocalizationService localizationService)
     {
         _unitOfWork = unitOfWork;
         _archiveService = archiveService;
@@ -44,6 +45,7 @@ public class DownloadController : BaseApiController
         _logger = logger;
         _bookmarkService = bookmarkService;
         _accountService = accountService;
+        _localizationService = localizationService;
     }
 
     /// <summary>
@@ -92,9 +94,9 @@ public class DownloadController : BaseApiController
     [HttpGet("volume")]
     public async Task<ActionResult> DownloadVolume(int volumeId)
     {
-        if (!await HasDownloadPermission()) return BadRequest("You do not have permission");
+        if (!await HasDownloadPermission()) return BadRequest(await _localizationService.Translate(User.GetUserId(), "permission-denied"));
         var volume = await _unitOfWork.VolumeRepository.GetVolumeByIdAsync(volumeId);
-        if (volume == null) return BadRequest("Volume doesn't exist");
+        if (volume == null) return BadRequest(await _localizationService.Translate(User.GetUserId(), "volume-doesnt-exist"));
         var files = await _unitOfWork.VolumeRepository.GetFilesForVolume(volumeId);
         var series = await _unitOfWork.SeriesRepository.GetSeriesByIdAsync(volume.SeriesId);
         try
@@ -117,7 +119,7 @@ public class DownloadController : BaseApiController
     private ActionResult GetFirstFileDownload(IEnumerable<MangaFile> files)
     {
         var (zipFile, contentType, fileDownloadName) = _downloadService.GetFirstFileDownload(files);
-        return PhysicalFile(zipFile, contentType, fileDownloadName, true);
+        return PhysicalFile(zipFile, contentType, Uri.EscapeDataString(fileDownloadName), true);
     }
 
     /// <summary>
@@ -128,10 +130,10 @@ public class DownloadController : BaseApiController
     [HttpGet("chapter")]
     public async Task<ActionResult> DownloadChapter(int chapterId)
     {
-        if (!await HasDownloadPermission()) return BadRequest("You do not have permission");
+        if (!await HasDownloadPermission()) return BadRequest(await _localizationService.Translate(User.GetUserId(), "permission-denied"));
         var files = await _unitOfWork.ChapterRepository.GetFilesForChapterAsync(chapterId);
         var chapter = await _unitOfWork.ChapterRepository.GetChapterAsync(chapterId);
-        if (chapter == null) return BadRequest("Invalid chapter");
+        if (chapter == null) return BadRequest(await _localizationService.Translate(User.GetUserId(), "chapter-doesnt-exist"));
         var volume = await _unitOfWork.VolumeRepository.GetVolumeByIdAsync(chapter.VolumeId);
         var series = await _unitOfWork.SeriesRepository.GetSeriesByIdAsync(volume!.SeriesId);
         try
@@ -163,7 +165,7 @@ public class DownloadController : BaseApiController
             await _eventHub.SendMessageAsync(MessageFactory.NotificationProgress,
                 MessageFactory.DownloadProgressEvent(User.GetUsername(),
                     Path.GetFileNameWithoutExtension(downloadName), 1F, "ended"));
-            return PhysicalFile(filePath, DefaultContentType, downloadName, true);
+            return PhysicalFile(filePath, DefaultContentType, Uri.EscapeDataString(downloadName), true);
         }
         catch (Exception ex)
         {
@@ -178,7 +180,7 @@ public class DownloadController : BaseApiController
     [HttpGet("series")]
     public async Task<ActionResult> DownloadSeries(int seriesId)
     {
-        if (!await HasDownloadPermission()) return BadRequest("You do not have permission");
+        if (!await HasDownloadPermission()) return BadRequest(await _localizationService.Translate(User.GetUserId(), "permission-denied"));
         var series = await _unitOfWork.SeriesRepository.GetSeriesByIdAsync(seriesId);
         if (series == null) return BadRequest("Invalid Series");
         var files = await _unitOfWork.SeriesRepository.GetFilesForSeries(seriesId);
@@ -200,8 +202,8 @@ public class DownloadController : BaseApiController
     [HttpPost("bookmarks")]
     public async Task<ActionResult> DownloadBookmarkPages(DownloadBookmarkDto downloadBookmarkDto)
     {
-        if (!await HasDownloadPermission()) return BadRequest("You do not have permission");
-        if (!downloadBookmarkDto.Bookmarks.Any()) return BadRequest("Bookmarks cannot be empty");
+        if (!await HasDownloadPermission()) return BadRequest(await _localizationService.Translate(User.GetUserId(), "permission-denied"));
+        if (!downloadBookmarkDto.Bookmarks.Any()) return BadRequest(await _localizationService.Translate(User.GetUserId(), "bookmarks-empty"));
 
         // We know that all bookmarks will be for one single seriesId
         var userId = User.GetUserId()!;
@@ -220,7 +222,7 @@ public class DownloadController : BaseApiController
             MessageFactory.DownloadProgressEvent(username, Path.GetFileNameWithoutExtension(filename), 1F));
 
 
-        return PhysicalFile(filePath, DefaultContentType, filename, true);
+        return PhysicalFile(filePath, DefaultContentType, System.Web.HttpUtility.UrlEncode(filename), true);
     }
 
 }

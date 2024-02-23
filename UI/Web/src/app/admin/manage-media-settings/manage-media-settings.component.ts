@@ -1,49 +1,85 @@
-import { Component, OnInit } from '@angular/core';
-import { FormGroup, FormControl, Validators } from '@angular/forms';
-import { ToastrService } from 'ngx-toastr';
-import { take } from 'rxjs';
-import { SettingsService } from '../settings.service';
-import { ServerSettings } from '../_models/server-settings';
-import { DirectoryPickerComponent, DirectoryPickerResult } from '../_modals/directory-picker/directory-picker.component';
-import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import {ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, OnInit} from '@angular/core';
+import {FormControl, FormGroup, ReactiveFormsModule, Validators} from '@angular/forms';
+import {ToastrService} from 'ngx-toastr';
+import {take} from 'rxjs';
+import {SettingsService} from '../settings.service';
+import {ServerSettings} from '../_models/server-settings';
+import {DirectoryPickerComponent, DirectoryPickerResult} from '../_modals/directory-picker/directory-picker.component';
+import {
+  NgbAccordionBody,
+  NgbAccordionButton,
+  NgbAccordionCollapse,
+  NgbAccordionDirective,
+  NgbAccordionHeader,
+  NgbAccordionItem,
+  NgbAccordionToggle,
+  NgbCollapse,
+  NgbModal,
+  NgbTooltip
+} from '@ng-bootstrap/ng-bootstrap';
+import {EncodeFormats} from '../_models/encode-format';
+import {ManageScrobbleErrorsComponent} from '../manage-scrobble-errors/manage-scrobble-errors.component';
+import {ManageAlertsComponent} from '../manage-alerts/manage-alerts.component';
+import {NgFor, NgIf, NgTemplateOutlet} from '@angular/common';
+import {translate, TranslocoDirective, TranslocoService} from "@ngneat/transloco";
+import { CoverImageSizes } from '../_models/cover-image-size';
 
 @Component({
   selector: 'app-manage-media-settings',
   templateUrl: './manage-media-settings.component.html',
-  styleUrls: ['./manage-media-settings.component.scss']
+  styleUrls: ['./manage-media-settings.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
+  imports: [NgIf, ReactiveFormsModule, NgbTooltip, NgTemplateOutlet, NgFor, NgbAccordionDirective, NgbAccordionItem, NgbAccordionHeader, NgbAccordionToggle, NgbAccordionButton, NgbCollapse, NgbAccordionCollapse, NgbAccordionBody, ManageAlertsComponent, ManageScrobbleErrorsComponent, TranslocoDirective]
 })
 export class ManageMediaSettingsComponent implements OnInit {
 
   serverSettings!: ServerSettings;
   settingsForm: FormGroup = new FormGroup({});
-  
+
+  alertCount: number = 0;
+  scrobbleCount: number = 0;
+  coverImageSizes = CoverImageSizes.map(o => {
+    const newObj = {...o};
+    newObj.title = translate(o.title);
+    return newObj;
+  })
+
+  private readonly translocoService = inject(TranslocoService);
+  private readonly cdRef = inject(ChangeDetectorRef);
+
+  get EncodeFormats() { return EncodeFormats; }
+
   constructor(private settingsService: SettingsService, private toastr: ToastrService, private modalService: NgbModal, ) { }
 
   ngOnInit(): void {
     this.settingsService.getServerSettings().pipe(take(1)).subscribe((settings: ServerSettings) => {
       this.serverSettings = settings;
-      this.settingsForm.addControl('convertBookmarkToWebP', new FormControl(this.serverSettings.convertBookmarkToWebP, [Validators.required]));
-      this.settingsForm.addControl('convertCoverToWebP', new FormControl(this.serverSettings.convertCoverToWebP, [Validators.required]));
+      this.settingsForm.addControl('encodeMediaAs', new FormControl(this.serverSettings.encodeMediaAs, [Validators.required]));
       this.settingsForm.addControl('bookmarksDirectory', new FormControl(this.serverSettings.bookmarksDirectory, [Validators.required]));
+      this.settingsForm.addControl('coverImageSize', new FormControl(this.serverSettings.coverImageSize, [Validators.required]));
+      this.cdRef.markForCheck();
     });
   }
 
   resetForm() {
-    this.settingsForm.get('convertBookmarkToWebP')?.setValue(this.serverSettings.convertBookmarkToWebP);
-    this.settingsForm.get('convertCoverToWebP')?.setValue(this.serverSettings.convertCoverToWebP);
+    this.settingsForm.get('encodeMediaAs')?.setValue(this.serverSettings.encodeMediaAs);
     this.settingsForm.get('bookmarksDirectory')?.setValue(this.serverSettings.bookmarksDirectory);
+    this.settingsForm.get('coverImageSize')?.setValue(this.serverSettings.coverImageSize);
     this.settingsForm.markAsPristine();
+    this.cdRef.markForCheck();
   }
 
   saveSettings() {
     const modelSettings = Object.assign({}, this.serverSettings);
-    modelSettings.convertBookmarkToWebP = this.settingsForm.get('convertBookmarkToWebP')?.value;
-    modelSettings.convertCoverToWebP = this.settingsForm.get('convertCoverToWebP')?.value;
+    modelSettings.encodeMediaAs = parseInt(this.settingsForm.get('encodeMediaAs')?.value, 10);
+    modelSettings.bookmarksDirectory = this.settingsForm.get('bookmarksDirectory')?.value;
+    modelSettings.coverImageSize = parseInt(this.settingsForm.get('coverImageSize')?.value, 10);
 
     this.settingsService.updateServerSettings(modelSettings).pipe(take(1)).subscribe(async (settings: ServerSettings) => {
       this.serverSettings = settings;
       this.resetForm();
-      this.toastr.success('Server settings updated');
+      this.toastr.success(this.translocoService.translate('toasts.server-settings-updated'));
     }, (err: any) => {
       console.error('error: ', err);
     });
@@ -53,7 +89,7 @@ export class ManageMediaSettingsComponent implements OnInit {
     this.settingsService.resetServerSettings().pipe(take(1)).subscribe((settings: ServerSettings) => {
       this.serverSettings = settings;
       this.resetForm();
-      this.toastr.success('Server settings updated');
+      this.toastr.success(this.translocoService.translate('toasts.server-settings-updated'));
     }, (err: any) => {
       console.error('error: ', err);
     });
@@ -67,6 +103,7 @@ export class ManageMediaSettingsComponent implements OnInit {
       if (closeResult.success && closeResult.folderPath !== '') {
         this.settingsForm.get(formControl)?.setValue(closeResult.folderPath);
         this.settingsForm.markAsDirty();
+        this.cdRef.markForCheck();
       }
     });
   }

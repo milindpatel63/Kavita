@@ -1,23 +1,28 @@
-import { ChangeDetectionStrategy, Component, Input, OnDestroy, OnInit } from '@angular/core';
-import { FormControl, FormGroup } from '@angular/forms';
-import { filter, map, Observable, of, shareReplay, Subject, switchMap, takeUntil } from 'rxjs';
+import {ChangeDetectionStrategy, Component, DestroyRef, inject, Input, OnInit} from '@angular/core';
+import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { filter, map, Observable, of, shareReplay, switchMap } from 'rxjs';
 import { MangaFormatPipe } from 'src/app/pipe/manga-format.pipe';
 import { Member } from 'src/app/_models/auth/member';
 import { MemberService } from 'src/app/_services/member.service';
 import { StatisticsService } from 'src/app/_services/statistics.service';
 import { PieDataItem } from '../../_models/pie-data-item';
 import { TimePeriods } from '../top-readers/top-readers.component';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import { LineChartModule } from '@swimlane/ngx-charts';
+import { NgIf, NgFor, AsyncPipe } from '@angular/common';
+import {TranslocoDirective, TranslocoService} from "@ngneat/transloco";
 
 const options: Intl.DateTimeFormatOptions  = { month: "short", day: "numeric" };
-const mangaFormatPipe = new MangaFormatPipe();
 
 @Component({
-  selector: 'app-reading-activity',
-  templateUrl: './reading-activity.component.html',
-  styleUrls: ['./reading-activity.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+    selector: 'app-reading-activity',
+    templateUrl: './reading-activity.component.html',
+    styleUrls: ['./reading-activity.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    standalone: true,
+  imports: [ReactiveFormsModule, NgIf, NgFor, LineChartModule, AsyncPipe, TranslocoDirective]
 })
-export class ReadingActivityComponent implements OnInit, OnDestroy {
+export class ReadingActivityComponent implements OnInit {
   /**
    * Only show for one user
    */
@@ -33,14 +38,16 @@ export class ReadingActivityComponent implements OnInit, OnDestroy {
   users$: Observable<Member[]> | undefined;
   data$: Observable<Array<PieDataItem>>;
   timePeriods = TimePeriods;
-  private readonly onDestroy = new Subject<void>();
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly translocoService = inject(TranslocoService);
+  mangaFormatPipe = new MangaFormatPipe(this.translocoService);
 
   constructor(private statService: StatisticsService, private memberService: MemberService) {
-    this.data$ = this.formGroup.valueChanges.pipe(      
+    this.data$ = this.formGroup.valueChanges.pipe(
       switchMap(_ => this.statService.getReadCountByDay(this.formGroup.get('users')!.value, this.formGroup.get('days')!.value)),
       map(data => {
         const gList = data.reduce((formats, entry) => {
-          const formatTranslated = mangaFormatPipe.transform(entry.format);
+          const formatTranslated = this.mangaFormatPipe.transform(entry.format);
           if (!formats[formatTranslated]) {
             formats[formatTranslated] = {
               name: formatTranslated,
@@ -56,26 +63,20 @@ export class ReadingActivityComponent implements OnInit, OnDestroy {
           return {name: format, value: 0, series: gList[format].series}
         });
       }),
-      takeUntil(this.onDestroy),
+      takeUntilDestroyed(this.destroyRef),
       shareReplay(),
     );
-    
+
     this.data$.subscribe();
   }
 
   ngOnInit(): void {
-    this.users$ = (this.isAdmin ? this.memberService.getMembers() : of([])).pipe(filter(_ => this.isAdmin), takeUntil(this.onDestroy), shareReplay());
+    this.users$ = (this.isAdmin ? this.memberService.getMembers() : of([])).pipe(filter(_ => this.isAdmin), takeUntilDestroyed(this.destroyRef), shareReplay());
     this.formGroup.get('users')?.setValue(this.userId, {emitValue: true});
 
     if (!this.isAdmin) {
       this.formGroup.get('users')?.disable();
     }
   }
-
-  ngOnDestroy(): void {
-    this.onDestroy.next();
-    this.onDestroy.complete();
-  }
-
 }
 

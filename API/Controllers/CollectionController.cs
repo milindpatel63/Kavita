@@ -20,16 +20,19 @@ public class CollectionController : BaseApiController
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICollectionTagService _collectionService;
+    private readonly ILocalizationService _localizationService;
 
     /// <inheritdoc />
-    public CollectionController(IUnitOfWork unitOfWork, ICollectionTagService collectionService)
+    public CollectionController(IUnitOfWork unitOfWork, ICollectionTagService collectionService,
+        ILocalizationService localizationService)
     {
         _unitOfWork = unitOfWork;
         _collectionService = collectionService;
+        _localizationService = localizationService;
     }
 
     /// <summary>
-    /// Return a list of all collection tags on the server
+    /// Return a list of all collection tags on the server for the logged in user.
     /// </summary>
     /// <returns></returns>
     [HttpGet]
@@ -87,14 +90,14 @@ public class CollectionController : BaseApiController
     {
         try
         {
-            if (await _collectionService.UpdateTag(updatedTag)) return Ok("Tag updated successfully");
+            if (await _collectionService.UpdateTag(updatedTag)) return Ok(await _localizationService.Translate(User.GetUserId(), "collection-updated-successfully"));
         }
         catch (KavitaException ex)
         {
-            return BadRequest(ex.Message);
+            return BadRequest(await _localizationService.Translate(User.GetUserId(), ex.Message));
         }
 
-        return BadRequest("Something went wrong, please try again");
+        return BadRequest(await _localizationService.Translate(User.GetUserId(), "generic-error"));
     }
 
     /// <summary>
@@ -111,7 +114,7 @@ public class CollectionController : BaseApiController
 
         if (await _collectionService.AddTagToSeries(tag, dto.SeriesIds)) return Ok();
 
-        return BadRequest("There was an issue updating series with collection tag");
+        return BadRequest(await _localizationService.Translate(User.GetUserId(), "generic-error"));
     }
 
     /// <summary>
@@ -126,18 +129,41 @@ public class CollectionController : BaseApiController
         try
         {
             var tag = await _unitOfWork.CollectionTagRepository.GetTagAsync(updateSeriesForTagDto.Tag.Id, CollectionTagIncludes.SeriesMetadata);
-            if (tag == null) return BadRequest("Not a valid Tag");
-            tag.SeriesMetadatas ??= new List<SeriesMetadata>();
+            if (tag == null) return BadRequest(await _localizationService.Translate(User.GetUserId(), "collection-doesnt-exist"));
 
             if (await _collectionService.RemoveTagFromSeries(tag, updateSeriesForTagDto.SeriesIdsToRemove))
-                return Ok("Tag updated");
+                return Ok(await _localizationService.Translate(User.GetUserId(), "collection-updated"));
         }
         catch (Exception)
         {
             await _unitOfWork.RollbackAsync();
         }
 
+        return BadRequest(await _localizationService.Translate(User.GetUserId(), "generic-error"));
+    }
 
-        return BadRequest("Something went wrong. Please try again.");
+    /// <summary>
+    /// Removes the collection tag from all Series it was attached to
+    /// </summary>
+    /// <param name="tagId"></param>
+    /// <returns></returns>
+    [Authorize(Policy = "RequireAdminRole")]
+    [HttpDelete]
+    public async Task<ActionResult> DeleteTag(int tagId)
+    {
+        try
+        {
+            var tag = await _unitOfWork.CollectionTagRepository.GetTagAsync(tagId, CollectionTagIncludes.SeriesMetadata);
+            if (tag == null) return BadRequest(await _localizationService.Translate(User.GetUserId(), "collection-doesnt-exist"));
+
+            if (await _collectionService.DeleteTag(tag))
+                return Ok(await _localizationService.Translate(User.GetUserId(), "collection-deleted"));
+        }
+        catch (Exception)
+        {
+            await _unitOfWork.RollbackAsync();
+        }
+
+        return BadRequest(await _localizationService.Translate(User.GetUserId(), "generic-error"));
     }
 }

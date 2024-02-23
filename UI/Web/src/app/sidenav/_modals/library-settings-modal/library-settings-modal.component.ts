@@ -1,22 +1,41 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnDestroy, OnInit } from '@angular/core';
-import { FormGroup, FormControl, Validators } from '@angular/forms';
-import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { ToastrService } from 'ngx-toastr';
-import { debounceTime, distinctUntilChanged, Subject, switchMap, takeUntil, tap } from 'rxjs';
-import { SettingsService } from 'src/app/admin/settings.service';
-import { DirectoryPickerComponent, DirectoryPickerResult } from 'src/app/admin/_modals/directory-picker/directory-picker.component';
-import { ConfirmService } from 'src/app/shared/confirm.service';
-import { Breakpoint, UtilityService } from 'src/app/shared/_services/utility.service';
-import { Library, LibraryType } from 'src/app/_models/library';
-import { ImageService } from 'src/app/_services/image.service';
-import { LibraryService } from 'src/app/_services/library.service';
-import { UploadService } from 'src/app/_services/upload.service';
+import {ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, inject, Input, OnInit} from '@angular/core';
+import {FormControl, FormGroup, ReactiveFormsModule, Validators} from '@angular/forms';
+import {
+  NgbActiveModal,
+  NgbModal,
+  NgbModalModule,
+  NgbNav,
+  NgbNavContent,
+  NgbNavItem,
+  NgbNavLink,
+  NgbNavOutlet,
+  NgbTooltip
+} from '@ng-bootstrap/ng-bootstrap';
+import {ToastrService} from 'ngx-toastr';
+import {debounceTime, distinctUntilChanged, switchMap, tap} from 'rxjs';
+import {SettingsService} from 'src/app/admin/settings.service';
+import {
+  DirectoryPickerComponent,
+  DirectoryPickerResult
+} from 'src/app/admin/_modals/directory-picker/directory-picker.component';
+import {ConfirmService} from 'src/app/shared/confirm.service';
+import {Breakpoint, UtilityService} from 'src/app/shared/_services/utility.service';
+import {Library, LibraryType} from 'src/app/_models/library';
+import {ImageService} from 'src/app/_services/image.service';
+import {LibraryService} from 'src/app/_services/library.service';
+import {UploadService} from 'src/app/_services/upload.service';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {CommonModule} from "@angular/common";
+import {SentenceCasePipe} from "../../../pipe/sentence-case.pipe";
+import {CoverImageChooserComponent} from "../../../cards/cover-image-chooser/cover-image-chooser.component";
+import {translate, TranslocoModule} from "@ngneat/transloco";
+import {DefaultDatePipe} from "../../../pipe/default-date.pipe";
 
 enum TabID {
-  General = 'General',
-  Folder = 'Folder',
-  Cover = 'Cover',
-  Advanced = 'Advanced'
+  General = 'general-tab',
+  Folder = 'folder-tab',
+  Cover = 'cover-tab',
+  Advanced = 'advanced-tab'
 }
 
 enum StepID {
@@ -28,13 +47,16 @@ enum StepID {
 
 @Component({
   selector: 'app-library-settings-modal',
+  standalone: true,
+  imports: [CommonModule, NgbModalModule, NgbNavLink, NgbNavItem, NgbNavContent, ReactiveFormsModule, NgbTooltip, SentenceCasePipe, NgbNav, NgbNavOutlet, CoverImageChooserComponent, TranslocoModule, DefaultDatePipe],
   templateUrl: './library-settings-modal.component.html',
   styleUrls: ['./library-settings-modal.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class LibrarySettingsModalComponent implements OnInit, OnDestroy {
+export class LibrarySettingsModalComponent implements OnInit {
 
-  @Input() library!: Library;
+  @Input({required: true}) library!: Library;
+  private readonly destroyRef = inject(DestroyRef);
 
   active = TabID.General;
   imageUrls: Array<string> = [];
@@ -48,23 +70,22 @@ export class LibrarySettingsModalComponent implements OnInit, OnDestroy {
     includeInSearch: new FormControl<boolean>(true, { nonNullable: true, validators: [Validators.required] }),
     manageCollections: new FormControl<boolean>(true, { nonNullable: true, validators: [Validators.required] }),
     manageReadingLists: new FormControl<boolean>(true, { nonNullable: true, validators: [Validators.required] }),
+    allowScrobbling: new FormControl<boolean>(true, { nonNullable: true, validators: [Validators.required] }),
     collapseSeriesRelationships: new FormControl<boolean>(false, { nonNullable: true, validators: [Validators.required] }),
   });
 
   selectedFolders: string[] = [];
   madeChanges = false;
   libraryTypes: string[] = []
-  
+
   isAddLibrary = false;
   setupStep = StepID.General;
-  private readonly onDestroy = new Subject<void>();
 
   get Breakpoint() { return Breakpoint; }
   get TabID() { return TabID; }
-  get StepID() { return StepID; }
 
   constructor(public utilityService: UtilityService, private uploadService: UploadService, private modalService: NgbModal,
-    private settingService: SettingsService, public modal: NgbActiveModal, private confirmService: ConfirmService, 
+    private settingService: SettingsService, public modal: NgbActiveModal, private confirmService: ConfirmService,
     private libraryService: LibraryService, private toastr: ToastrService, private readonly cdRef: ChangeDetectorRef,
     private imageService: ImageService) { }
 
@@ -86,8 +107,14 @@ export class LibrarySettingsModalComponent implements OnInit, OnDestroy {
       this.cdRef.markForCheck();
     }
 
+    if (this.library && this.library.type === LibraryType.Comic) {
+      this.libraryForm.get('allowScrobbling')?.setValue(false);
+      this.libraryForm.get('allowScrobbling')?.disable();
+    }
+
+
     this.libraryForm.get('name')?.valueChanges.pipe(
-      debounceTime(100), 
+      debounceTime(100),
       distinctUntilChanged(),
       switchMap(name => this.libraryService.libraryNameExists(name)),
       tap(exists => {
@@ -95,22 +122,16 @@ export class LibrarySettingsModalComponent implements OnInit, OnDestroy {
         if (!exists || isExistingName) {
           this.libraryForm.get('name')?.setErrors(null);
         } else {
-          this.libraryForm.get('name')?.setErrors({duplicateName: true})  
+          this.libraryForm.get('name')?.setErrors({duplicateName: true})
         }
         this.cdRef.markForCheck();
       }),
-      takeUntil(this.onDestroy)
+      takeUntilDestroyed(this.destroyRef)
       ).subscribe();
 
 
     this.setValues();
   }
-
-  ngOnDestroy() {
-    this.onDestroy.next();
-    this.onDestroy.complete();
-  }
-  
 
   setValues() {
     if (this.library !== undefined) {
@@ -123,6 +144,7 @@ export class LibrarySettingsModalComponent implements OnInit, OnDestroy {
       this.libraryForm.get('manageCollections')?.setValue(this.library.manageCollections);
       this.libraryForm.get('manageReadingLists')?.setValue(this.library.manageReadingLists);
       this.libraryForm.get('collapseSeriesRelationships')?.setValue(this.library.collapseSeriesRelationships);
+      this.libraryForm.get('allowScrobbling')?.setValue(this.library.allowScrobbling);
       this.selectedFolders = this.library.folders;
       this.madeChanges = false;
       this.cdRef.markForCheck();
@@ -142,7 +164,8 @@ export class LibrarySettingsModalComponent implements OnInit, OnDestroy {
   }
 
   forceScan() {
-    this.libraryService.scan(this.library.id, true).subscribe(() => this.toastr.info('A forced scan has been started for ' + this.library.name));
+    this.libraryService.scan(this.library.id, true)
+      .subscribe(() => this.toastr.info(translate('toasts.forced-scan-queued', {name: this.library.name})));
   }
 
   async save() {
@@ -159,8 +182,7 @@ export class LibrarySettingsModalComponent implements OnInit, OnDestroy {
       model.type = parseInt(model.type, 10);
 
       if (model.type !== this.library.type) {
-        if (!await this.confirmService.confirm(`Changing library type will trigger a new scan with different parsing rules and may lead to 
-        series being re-created and hence you may loose progress and bookmarks. You should backup before you do this. Are you sure you want to continue?`)) return;
+        if (!await this.confirmService.confirm(translate('toasts.confirm-library-type-change'))) return;
       }
 
       this.libraryService.update(model).subscribe(() => {
@@ -170,7 +192,7 @@ export class LibrarySettingsModalComponent implements OnInit, OnDestroy {
       model.folders = model.folders.map((item: string) => item.startsWith('\\') ? item.substr(1, item.length) : item);
       model.type = parseInt(model.type, 10);
       this.libraryService.create(model).subscribe(() => {
-        this.toastr.success('Library created successfully. A scan has been started.');
+        this.toastr.success(translate('toasts.library-created'));
         this.close(true);
       });
     }
@@ -221,7 +243,7 @@ export class LibrarySettingsModalComponent implements OnInit, OnDestroy {
 
   isNextDisabled() {
     switch (this.setupStep) {
-      case StepID.General: 
+      case StepID.General:
         return this.libraryForm.get('name')?.invalid || this.libraryForm.get('type')?.invalid;
       case StepID.Folder:
         return this.selectedFolders.length === 0;

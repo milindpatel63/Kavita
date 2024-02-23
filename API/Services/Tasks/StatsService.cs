@@ -23,6 +23,7 @@ public interface IStatsService
 {
     Task Send();
     Task<ServerInfoDto> GetServerInfo();
+    Task<ServerInfoSlimDto> GetServerInfoSlim();
     Task SendCancellation();
 }
 /// <summary>
@@ -34,7 +35,7 @@ public class StatsService : IStatsService
     private readonly IUnitOfWork _unitOfWork;
     private readonly DataContext _context;
     private readonly IStatisticService _statisticService;
-    private const string ApiUrl = "https://stats.kavitareader.com";
+    private const string ApiUrl = "https://stats.kavitareader.com"; // ""
 
     public StatsService(ILogger<StatsService> logger, IUnitOfWork unitOfWork, DataContext context, IStatisticService statisticService)
     {
@@ -119,7 +120,7 @@ public class StatsService : IStatsService
             Os = RuntimeInformation.OSDescription,
             KavitaVersion = serverSettings.InstallVersion,
             DotnetVersion = Environment.Version.ToString(),
-            IsDocker = new OsInfo().IsDocker,
+            IsDocker = OsInfo.IsDocker,
             NumOfCores = Math.Max(Environment.ProcessorCount, 1),
             UsersWithEmulateComicBook = await _context.AppUserPreferences.CountAsync(p => p.EmulateBook),
             TotalReadingHours = await _statisticService.TimeSpentReadingForUsersAsync(ArraySegment<int>.Empty, ArraySegment<int>.Empty),
@@ -139,8 +140,7 @@ public class StatsService : IStatsService
             TotalGenres = await _unitOfWork.GenreRepository.GetCountAsync(),
             TotalPeople = await _unitOfWork.PersonRepository.GetCountAsync(),
             UsingSeriesRelationships = await GetIfUsingSeriesRelationship(),
-            StoreBookmarksAsWebP = serverSettings.ConvertBookmarkToWebP,
-            StoreCoversAsWebP = serverSettings.ConvertCoverToWebP,
+            EncodeMediaAs = serverSettings.EncodeMediaAs,
             MaxSeriesInALibrary = await MaxSeriesInAnyLibrary(),
             MaxVolumesInASeries = await MaxVolumesInASeries(),
             MaxChaptersInASeries = await MaxChaptersInASeries(),
@@ -149,6 +149,7 @@ public class StatsService : IStatsService
             MangaReaderLayoutModes = await AllMangaReaderLayoutModes(),
             FileFormats = AllFormats(),
             UsingRestrictedProfiles = await GetUsingRestrictedProfiles(),
+            LastReadTime = await _unitOfWork.AppUserProgressRepository.GetLatestProgress()
         };
 
         var usersWithPref = (await _unitOfWork.UserRepository.GetAllUsersAsync(AppUserIncludes.UserPreferences)).ToList();
@@ -169,6 +170,17 @@ public class StatsService : IStatsService
         }
 
         return serverInfo;
+    }
+
+    public async Task<ServerInfoSlimDto> GetServerInfoSlim()
+    {
+        var serverSettings = await _unitOfWork.SettingsRepository.GetSettingsDtoAsync();
+        return new ServerInfoSlimDto()
+        {
+            InstallId = serverSettings.InstallId,
+            KavitaVersion = serverSettings.InstallVersion,
+            IsDocker = OsInfo.IsDocker
+        };
     }
 
     public async Task SendCancellation()
@@ -292,14 +304,14 @@ public class StatsService : IStatsService
 
     private IEnumerable<FileFormatDto> AllFormats()
     {
-        // TODO: Rewrite this with new migration code in feature/basic-stats
+
         var results =  _context.MangaFile
             .AsNoTracking()
             .AsEnumerable()
             .Select(m => new FileFormatDto()
             {
                 Format = m.Format,
-                Extension = Path.GetExtension(m.FilePath)?.ToLowerInvariant()!
+                Extension = m.Extension
             })
             .DistinctBy(f => f.Extension)
             .ToList();
